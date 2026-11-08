@@ -1,0 +1,68 @@
+[project]
+name = "survey-studio"
+version = "0.1.0"
+description = "Local survey research agent studio"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.6",
+    "uvicorn[standard]>=0.34.0",
+    "pydantic-settings>=2.7.0",
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14.0",
+    "python-multipart>=0.0.20",
+    "pandas>=2.2.3",
+    "pyarrow>=18.1.0",
+    "pyreadstat>=1.2.8",
+    "openpyxl>=3.1.5",
+    "python-docx>=1.1.2",
+    "pypdf>=5.1.0",
+    "statsmodels>=0.14.4",
+    "scikit-learn>=1.6.0",
+    "scipy>=1.15.0",
+    "numpy>=2.1.0",
+    "openai>=1.68.0",
+    "openai-agents>=0.2.0",
+    "anthropic>=1.0.0",
+    "httpx>=0.28.1",
+    "matplotlib>=3.10.0",
+    "fpdf2>=2.9.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.25.0",
+    "ruff>=0.9.0",
+    "black>=25.1.0",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+app = ["assets/fonts/*.ttf"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"alembic/versions/*" = ["E402", "I001"]

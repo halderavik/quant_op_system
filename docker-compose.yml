@@ -1,0 +1,8 @@
+# Optional. The tested local path is uv plus npm, documented in README.md.
+# The sandbox image is what the API uses when Docker is available.
+services:
+  sandbox:
+    image: python:3.12-slim
+    profiles: ["sandbox"]
+    command: python -c "print('sandbox image is present')"
+    network_mode: none

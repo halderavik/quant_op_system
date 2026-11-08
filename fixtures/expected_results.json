@@ -1,0 +1,19 @@
+{
+  "case": "six_respondent_trust_by_gender",
+  "notes": "Hand-calculated. Zero weight stays in the unweighted base only. Code 99 is user-missing.",
+  "total": {
+    "unweighted_base": 5,
+    "weighted_base": 5,
+    "low_unweighted_numerator": 3,
+    "low_weighted_numerator": 3,
+    "low_percent": 60,
+    "high_percent": 40
+  },
+  "male_high": {
+    "unweighted_base": 3,
+    "weighted_base": 2,
+    "unweighted_numerator": 1,
+    "weighted_numerator": 0,
+    "percent": 0
+  }
+}
