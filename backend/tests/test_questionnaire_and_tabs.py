@@ -250,7 +250,9 @@ def test_chat_and_panel_edit_the_same_questionnaire(client: TestClient) -> None:
 
 
 def test_tabspec_covers_questions_and_round_trips() -> None:
-    """Eligible questions are tabulated, open text is excluded, and Excel reloads."""
+    """Eligible questions are tabulated, open text stays on the plan, and Excel reloads."""
+    from app.engines.tabspec_excel import export_legacy_tabspec
+
     document = _instrument(count=5)
     variables = [
         {"name": "Q1", "label": "Q1", "is_text": False, "value_labels": {"1": "No", "2": "Yes"}},
@@ -264,11 +266,14 @@ def test_tabspec_covers_questions_and_round_trips() -> None:
     ]
     spec = build_tabspec(document, variables, dataset_id="d1")
     titles = {table.id for table in spec.tables}
-    assert "T001" in titles
-    assert any(item["question_id"] == "Q5" for item in spec.exclusions)
+    assert "T1" in titles
+    assert any(table.plan_type == "Open end" for table in spec.tables)
+    assert not any(item["question_id"] == "Q5" for item in spec.exclusions)
     restored = import_tabspec(export_tabspec(spec))
     assert [table.id for table in restored.tables] == [table.id for table in spec.tables]
     assert restored.banners[0].variable_name == "gender"
+    legacy = import_tabspec(export_legacy_tabspec(spec))
+    assert [table.id for table in legacy.tables] == [table.id for table in spec.tables]
 
 
 def test_ambiguous_external_spec_requires_confirmation() -> None:

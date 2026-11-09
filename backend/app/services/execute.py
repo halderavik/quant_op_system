@@ -269,6 +269,13 @@ def build_project_tabspec(
     )
     dataset = _optional_dataset(db, project_id)
     variables = dataset.variables if dataset else None
+    frame = None
+    if dataset is not None:
+        try:
+            frame = load_frame(storage, dataset)
+        except (OSError, ValueError):
+            # Reason: a dataset row without a readable snapshot still gets a plan.
+            frame = None
     spec = build_tabspec(
         questionnaire,
         variables,
@@ -279,6 +286,7 @@ def build_project_tabspec(
             else None
         ),
         weight_variable=weight,
+        frame=frame,
     )
     if dataset is not None:
         _reject_missing_execution_names(spec, {item["name"] for item in dataset.variables})
@@ -418,8 +426,14 @@ def _reject_missing_execution_names(spec: TabSpec, names: set[str]) -> None:
         spec: Tab spec.
         names: Dataset variable names.
     """
+    derived_names = {item.name for item in spec.derived_variables}
     for table in spec.tables:
-        if any(name not in names for name in table.row_variable_names):
+        missing = [
+            name
+            for name in table.row_variable_names
+            if name not in names and name not in derived_names
+        ]
+        if missing:
             table.notes.append(
                 "Unresolved dataset variable. This table will not run until it is mapped."
             )

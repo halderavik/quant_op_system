@@ -40,7 +40,8 @@ npm test
 
 ## Known limits
 
-- Unweighted crosstabs use a two-tailed unpooled z-test. Uppercase letters are 95% and lowercase letters are 90%. A column with base 30 or below is marked `.`. Weighted tables do not receive letters.
+- Unweighted crosstabs use a two-tailed unpooled z-test within each banner group, not against Total and not across groups. Uppercase letters are 95% and lowercase letters are 90%. A column below the table minimum base is marked `.`. Newly generated plans use 20 as that minimum and flag bases of 20–29 as `*low base`. Weighted tables do not receive letters.
+- Tab specs export as an analyst plan with Overview, Banner specs, Table plan, Derived variables, and Not tabbed. Download Excel on the tab spec writes that workbook, with the same navy headers, column widths, and orange low-base rows as the example plan. The editor shows those table-plan columns. An older nine-sheet workbook still imports. A base cell that is not `All` or a code comparison blocks that table until it is confirmed.
 - Questionnaire DOCX and PDF exports keep programming notes in blue, separate from respondent text. Coding workbooks write numeric punches on `Coded_Data` and formula counts on `Codeframe_{variable}`.
 - Decipher programming compiles the saved questionnaire into importable survey XML. Loops have an empty body, ranks do not attach a visual rank-sort style, and dates are `YYYY-MM-DD` text. Direct launch into Decipher is not connected. Preview survey walks that XML one question at a time, including the `cond`, `term`, and `goto` logic in the file. Programmer notes stay hidden. A condition this preview cannot read stops the walk instead of being guessed, and `<validate>` Python is not executed.
 - Unknown Excel tab-spec layouts are previewed and blocked when the mapping is ambiguous.

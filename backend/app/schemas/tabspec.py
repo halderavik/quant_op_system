@@ -8,21 +8,29 @@ from app.schemas.expression import Expr
 
 
 class BannerCategory(BaseModel):
-    """One column segment inside a banner."""
+    """One column segment inside a banner group."""
 
     label: str
     codes: list[Any]
     order: int = 0
+    letter: str = ""
+    n: int | None = None
+    low_base: str = ""
+    definition: str = ""
 
 
 class Banner(BaseModel):
-    """A column banner built from one dataset variable."""
+    """One group inside a banner plan. A plan is the letter A or B."""
 
     id: str
     label: str
     variable_name: str | None = None
     categories: list[BannerCategory] = Field(default_factory=list)
     include_total: bool = True
+    plan: str = ""
+    group: str = ""
+    source_variable: str | None = None
+    variable_note: str = ""
 
 
 class SignificanceSpec(BaseModel):
@@ -64,6 +72,15 @@ class TableSpec(BaseModel):
     notes: list[str] = Field(default_factory=list)
     order: int = 0
     mention_denominator: bool = False
+    section: str = ""
+    plan_type: str = ""
+    stub_label: str = ""
+    base_text: str = "All"
+    base_n: int | None = None
+    row_instruction: str = ""
+    banner_plans: list[str] = Field(default_factory=list)
+    method: str = "crosstab"
+    needs_confirmation: bool = False
 
 
 class NetSpec(BaseModel):
@@ -82,6 +99,10 @@ class DerivedVariable(BaseModel):
     recipe: Literal["band", "recode", "reverse", "top_box", "net_flag"]
     source: str
     params: dict[str, Any] = Field(default_factory=dict)
+    kind: str = ""
+    definition: str = ""
+    purpose: str = ""
+    apply: bool = True
 
 
 class StudyDefaults(BaseModel):
@@ -92,6 +113,10 @@ class StudyDefaults(BaseModel):
     alpha: float = 0.05
     minimum_unweighted_base_for_display: int = 30
     decimals: int = 1
+    study_title: str = ""
+    sample_note: str = ""
+    sample_size: int | None = None
+    assumptions: str = ""
 
 
 class MappingItem(BaseModel):

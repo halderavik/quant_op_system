@@ -121,6 +121,9 @@
 - [x] A10 All delivered downloads exist, are nonempty and can be opened.
 ## Discovered During Work
 
+- [x] T173 Let the user download the open tab spec as an Excel plan styled like the example workbook. (2026-11-08)
+- [x] T172 Export and generate tab specs in the analyst workbook style, and test significance only within a banner group. (2026-11-08)
+- [x] T171 Rename the sidebar title to SRAS (Survey Research Agent Studio). (2026-11-08)
 - [x] T170 Preview a programmed Decipher survey from its XML, one question at a time, so the respondent path matches the file. (2026-11-08)
 - [x] T169 When a questionnaire is drafted or revised, the validator checks every show-if, skip, route, and option code, corrects logic errors, and does not store a draft that still fails. (2026-11-08)
 - [x] T168 Reject show-if and skip conditions that name a missing question, a punch label, or a hidden variable, and say which question and comparison failed. (2026-11-08)

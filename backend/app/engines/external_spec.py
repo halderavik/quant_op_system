@@ -5,6 +5,7 @@ from typing import Any
 
 from openpyxl import Workbook, load_workbook
 
+from app.engines.tabspec_analyst import ANALYST_SHEETS
 from app.engines.tabspec_excel import _SHEETS
 from app.errors import AppError
 from app.schemas.tabspec import ExternalMappingPreview
@@ -52,6 +53,13 @@ def _preview_xlsx(data: bytes) -> ExternalMappingPreview:
             format_id="canonical",
             mapping_confidence="high",
             mapped_fields={name: name for name in _SHEETS},
+            requires_confirmation=False,
+        )
+    if all(name in book.sheetnames for name in ANALYST_SHEETS):
+        return ExternalMappingPreview(
+            format_id="analyst",
+            mapping_confidence="high",
+            mapped_fields={name: name for name in ANALYST_SHEETS},
             requires_confirmation=False,
         )
     sheet = book[book.sheetnames[0]]

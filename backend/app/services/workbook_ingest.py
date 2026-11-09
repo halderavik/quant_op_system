@@ -27,7 +27,7 @@ def ingest_workbook(db: Session, storage: Storage, project_id: str, data: bytes)
         Execution flag, artifact id, and a user-facing message.
     """
     preview = preview_external(data)
-    if preview.format_id != "canonical" or preview.requires_confirmation:
+    if preview.format_id not in {"canonical", "analyst"} or preview.requires_confirmation:
         revision = ArtifactRepository(db).create(
             project_id=project_id,
             artifact_type="spec_review",

@@ -23,6 +23,8 @@ def apply_derived(frame: pd.DataFrame, derived: list[DerivedVariable]) -> pd.Dat
     """
     out = frame.copy()
     for item in derived:
+        if not item.apply:
+            continue
         blob = json.dumps(item.params, default=str)
         if any(token in blob for token in _FORBIDDEN):
             raise AppError(

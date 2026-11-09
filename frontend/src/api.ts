@@ -142,6 +142,19 @@ export async function exportQuestionnaire(
   return parse(await fetch(`/api/projects/${projectId}/questionnaires/export/${kind}`, { method: "POST" }));
 }
 
+export async function exportTabspec(
+  projectId: string,
+  content: Record<string, unknown>,
+): Promise<{ file_id: string }> {
+  return parse(
+    await fetch(`/api/projects/${projectId}/tabspecs/export`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(content),
+    }),
+  );
+}
+
 export async function programDecipher(projectId: string): Promise<{
   file_id: string;
   artifact_id: string;

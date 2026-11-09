@@ -6,6 +6,8 @@ from typing import Any
 
 from openpyxl import Workbook, load_workbook
 
+from app.engines.tabspec_analyst import ANALYST_SHEETS, export_analyst
+from app.engines.tabspec_analyst_read import import_analyst
 from app.errors import AppError
 from app.schemas.expression import BoolExpr, Comparison
 from app.schemas.tabspec import (
@@ -34,7 +36,19 @@ _SHEETS = [
 
 
 def export_tabspec(spec: TabSpec) -> bytes:
-    """Write the canonical workbook.
+    """Write the analyst crosstab plan.
+
+    Args:
+        spec: Tab spec.
+
+    Returns:
+        XLSX bytes.
+    """
+    return export_analyst(spec)
+
+
+def export_legacy_tabspec(spec: TabSpec) -> bytes:
+    """Write the older machine workbook.
 
     Args:
         spec: Tab spec.
@@ -193,6 +207,8 @@ def import_tabspec(data: bytes) -> TabSpec:
         book = load_workbook(BytesIO(data), data_only=True)
     except Exception as exc:
         raise AppError("The workbook could not be opened.", "bad_workbook") from exc
+    if all(name in book.sheetnames for name in ANALYST_SHEETS):
+        return import_analyst(data)
     missing = [name for name in _SHEETS if name not in book.sheetnames]
     if missing:
         raise AppError(

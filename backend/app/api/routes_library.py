@@ -9,6 +9,7 @@ from app.api.deps import get_db
 from app.engines.decipher import compile_decipher
 from app.engines.decipher_preview import step_preview
 from app.engines.flow import validate_questionnaire
+from app.engines.tabspec_excel import export_tabspec
 from app.errors import AppError
 from app.repositories.records import (
     ArtifactRepository,
@@ -19,11 +20,13 @@ from app.repositories.records import (
 from app.schemas.artifact import RevisionCreate, SemanticPatch
 from app.schemas.preview import PreviewRequest
 from app.schemas.questionnaire import Questionnaire
+from app.schemas.tabspec import TabSpec
 from app.services.documents import export_questionnaire_file, save_questionnaire
 from app.services.execute import ingest_spss, load_frame, validation_for_report_artifact
 from app.services.patch import apply_semantic_patch
 from app.services.revisions import prepare_revision
 from app.services.storage import Storage
+from app.services.stored_files import _write_export
 from app.util import new_id, sha256_bytes
 
 router = APIRouter()
@@ -327,6 +330,38 @@ def export_questionnaire(
         File id.
     """
     file_id = export_questionnaire_file(db, request.app.state.storage, project_id, kind)
+    return {"file_id": file_id}
+
+
+@router.post("/projects/{project_id}/tabspecs/export")
+def export_tabspec_route(
+    project_id: str, body: dict, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    """Store the posted tab spec as the analyst workbook.
+
+    Args:
+        project_id: Project id.
+        body: Tab spec content, including unsaved editor edits.
+        request: Current request.
+        db: Session.
+
+    Returns:
+        File id of the workbook.
+    """
+    ProjectRepository(db).get(project_id)
+    try:
+        spec = TabSpec.model_validate(body)
+    except ValidationError as exc:
+        raise AppError("The tab spec is not valid.", "bad_tabspec") from exc
+    payload = export_tabspec(spec)
+    file_id = _write_export(
+        db,
+        request.app.state.storage,
+        project_id,
+        "crosstab-plan.xlsx",
+        payload,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
     return {"file_id": file_id}
 
 

@@ -23,7 +23,15 @@ export type TableDraft = {
   title?: string;
   table_type?: string;
   banner_ids?: string[];
+  banner_plans?: string[];
   row_variable_names?: string[];
+  section?: string;
+  plan_type?: string;
+  stub_label?: string;
+  base_text?: string;
+  row_instruction?: string;
+  notes?: string[];
+  needs_confirmation?: boolean;
 };
 
 export type CrosstabTable = {
@@ -239,9 +247,47 @@ export function sortTables(content: Record<string, unknown>): Record<string, unk
 }
 
 export function updateTableTitle(content: Record<string, unknown>, index: number, title: string): Record<string, unknown> {
+  return updateTableField(content, index, "title", title);
+}
+
+export function updateTableField(
+  content: Record<string, unknown>,
+  index: number,
+  field: keyof TableDraft,
+  value: string,
+): Record<string, unknown> {
   const tables = tablesOf(content).slice();
-  tables[index] = { ...tables[index], title };
+  const current = { ...tables[index] };
+  if (field === "banner_plans") {
+    current.banner_plans = value
+      .split("+")
+      .map((part) => part.trim().toUpperCase())
+      .filter((part) => part === "A" || part === "B");
+  } else if (field === "notes") {
+    current.notes = value ? [value] : [];
+  } else if (field === "stub_label") {
+    current.stub_label = value;
+    current.row_variable_names = value
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+  } else if (
+    field === "section" ||
+    field === "title" ||
+    field === "plan_type" ||
+    field === "base_text" ||
+    field === "row_instruction" ||
+    field === "table_type"
+  ) {
+    current[field] = value;
+  }
+  tables[index] = current;
   return { ...content, tables };
+}
+
+export function bannerPlanLabel(table: TableDraft): string {
+  if (table.banner_plans && table.banner_plans.length > 0) return table.banner_plans.join(" + ");
+  return (table.banner_ids ?? []).join(", ");
 }
 
 export function tabspecIssues(content: Record<string, unknown>): string[] {
@@ -257,6 +303,7 @@ export function tabspecIssues(content: Record<string, unknown>): string[] {
     (table.banner_ids ?? []).forEach((bannerId) => {
       if (!banners.has(bannerId)) issues.push(`Table ${id} references banner ${bannerId}, which is not on the spec.`);
     });
+    if (table.needs_confirmation) issues.push(`Table ${id} needs a confirmed base before it can run.`);
   });
   return issues;
 }

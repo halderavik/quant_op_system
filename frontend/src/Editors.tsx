@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Artifact } from "./api";
-import { downloadUrl, exportQuestionnaire, previewSource, programDecipher, saveDownload, saveRevision, type SavedRevision } from "./api";
+import { downloadUrl, exportQuestionnaire, exportTabspec, previewSource, programDecipher, saveDownload, saveRevision, type SavedRevision } from "./api";
 import { AnalysisViewer } from "./editors/AnalysisViewer";
 import { CodeframeEditor } from "./editors/CodeframeEditor";
 import { CrosstabViewer } from "./editors/CrosstabViewer";
@@ -87,6 +87,19 @@ export function ArtifactEditor({
     }
   }
 
+  async function downloadTabspec() {
+    setWorking(true);
+    setMessage("");
+    try {
+      const exported = await exportTabspec(projectId, draft);
+      saveDownload(exported.file_id);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Excel export failed.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
   async function downloadKind(kind: "docx" | "pdf") {
     setWorking(true);
     setMessage("");
@@ -166,6 +179,11 @@ export function ArtifactEditor({
         </div>
         {currentStage && <p aria-live="polite" className="mt-2 text-sm text-teal-900">Working · {currentStage}</p>}
         <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+          {artifact.type === "tabspec" && (
+            <button className="rounded border border-stone-300 bg-white px-3 py-1.5" disabled={working} onClick={() => void downloadTabspec()} type="button">
+              Download Excel
+            </button>
+          )}
           {artifact.type === "questionnaire" && (
             <>
               <button className="rounded border border-stone-300 bg-white px-3 py-1.5" disabled={working} onClick={() => downloadKind("docx")} type="button">

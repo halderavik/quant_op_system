@@ -10,6 +10,7 @@ import {
   moveQuestion,
   provenanceRows,
   tabspecIssues,
+  updateTableField,
   visibleAssignments,
 } from "./model";
 
@@ -58,6 +59,15 @@ describe("structural edits", () => {
     expect(tables).toHaveLength(2);
     expect(tables[1].id).not.toBe("T1");
     expect(tabspecIssues(copied)).toEqual([]);
+  });
+
+  it("edits the table-plan columns", () => {
+    const content = { tables: [{ id: "T1", title: "Trust", base_text: "All", banner_plans: ["A"] }] };
+    const next = updateTableField(content, 0, "banner_plans", "A + B");
+    const table = (next.tables as { banner_plans: string[]; base_text: string }[])[0];
+    expect(table.banner_plans).toEqual(["A", "B"]);
+    const based = updateTableField(next, 0, "base_text", "Q8 = 2-5");
+    expect((based.tables as { base_text: string }[])[0].base_text).toBe("Q8 = 2-5");
   });
 
   it("flags a duplicate id and a missing banner", () => {

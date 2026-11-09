@@ -45,20 +45,74 @@ def run_tabspec(
     book = TabBook()
     prepared = apply_derived(frame, spec.derived_variables)
     for table in spec.tables:
-        try:
-            book.tables.append(
-                run_table(
-                    prepared,
-                    variables,
-                    table,
-                    spec.study_defaults,
-                    spec.banners,
-                    dataset_id=dataset_id,
+        held = _hold(table)
+        if held:
+            book.exceptions.append({"table_id": table.id, "message": held})
+            continue
+        for run in _runs_for_plans(table, spec.banners):
+            try:
+                book.tables.append(
+                    run_table(
+                        prepared,
+                        variables,
+                        run,
+                        spec.study_defaults,
+                        spec.banners,
+                        dataset_id=dataset_id,
+                    )
                 )
-            )
-        except AppError as exc:
-            book.exceptions.append({"table_id": table.id, "message": exc.message})
+            except AppError as exc:
+                book.exceptions.append({"table_id": run.id, "message": exc.message})
     return book
+
+
+def _hold(table: TableSpec) -> str | None:
+    """Return why a plan row should not be executed as a crosstab.
+
+    Args:
+        table: Table definition.
+
+    Returns:
+        A message, or None when the table should run.
+    """
+    if table.needs_confirmation:
+        detail = table.notes[-1] if table.notes else table.base_text
+        return f"Confirm this table before it runs. {detail}"
+    if table.plan_type in {"Open end", "Grid summary"}:
+        return f"{table.plan_type} is on the plan and is not tabulated as a standard crosstab."
+    method = table.method.lower()
+    if method.startswith("coding") or method.startswith("battery"):
+        return f"{table.method} is not tabulated as a standard crosstab."
+    return None
+
+
+def _runs_for_plans(table: TableSpec, banners: list[Banner]) -> list[TableSpec]:
+    """Run banner A and banner B as separate tables.
+
+    Args:
+        table: Table definition.
+        banners: Banner catalog.
+
+    Returns:
+        One table, or one copy per banner plan when the cell says ``A + B``.
+    """
+    plans = [plan for plan in table.banner_plans if plan]
+    if len(plans) <= 1:
+        return [table]
+    runs: list[TableSpec] = []
+    for plan in plans:
+        ids = [banner.id for banner in banners if banner.plan == plan]
+        runs.append(
+            table.model_copy(
+                update={
+                    "id": f"{table.id}-{plan}",
+                    "title": f"{table.title} (Banner {plan})",
+                    "banner_ids": ids or table.banner_ids,
+                    "banner_plans": [plan],
+                }
+            )
+        )
+    return runs
 
 
 def run_table(
@@ -195,22 +249,24 @@ def _columns(
     """
     headers = [ColumnHeader(id="total", label="Total", letter="")]
     masks: dict[str, pd.Series] = {"total": filter_mask}
+    selected = [_banner(banners, banner_id) for banner_id in table.banner_ids]
+    stored = any(category.letter for banner in selected for category in banner.categories)
     letter_index = 0
-    for banner_id in table.banner_ids:
-        banner = _banner(banners, banner_id)
+    for banner in selected:
         if not banner.variable_name:
             raise AppError(
                 f"Banner '{banner.id}' is not mapped to a dataset variable", "missing_variable"
             )
         series = frame[banner.variable_name]
         for category in banner.categories:
-            letter = _LETTERS[letter_index] if letter_index < len(_LETTERS) else ""
-            letter_index += 1
+            if stored:
+                letter = category.letter
+            else:
+                letter = _LETTERS[letter_index] if letter_index < len(_LETTERS) else ""
+                letter_index += 1
             column_id = f"{banner.id}:{category.label}"
             headers.append(ColumnHeader(id=column_id, label=category.label, letter=letter))
             masks[column_id] = filter_mask & in_codes(series, category.codes)
-        if banner.include_total and "total" in masks:
-            continue
     if len(headers) == 1:
         headers[0].letter = ""
     return headers, masks
@@ -240,32 +296,36 @@ def _signify(
     warnings: list[str] = []
     banner_cols = [col for col in columns if col.id != "total"]
     varied = use_weight and weights_vary(weights, filter_mask)
+    grouped: dict[str, list[ColumnHeader]] = {}
+    for column in banner_cols:
+        grouped.setdefault(column.id.split(":", 1)[0], []).append(column)
     for row in rows:
         if row.row_kind not in {"category", "net", "top_box", "bottom_box"}:
             continue
-        counts = []
-        for col in banner_cols:
-            cell = row.cells[col.id]
-            counts.append(
-                ColumnCounts(
-                    col.id,
-                    col.letter,
-                    int(cell.unweighted_numerator or 0),
-                    int(cell.unweighted_base or 0),
-                    cell.estimate,
+        for group in grouped.values():
+            counts = []
+            for col in group:
+                cell = row.cells[col.id]
+                counts.append(
+                    ColumnCounts(
+                        col.id,
+                        col.letter,
+                        int(cell.unweighted_numerator or 0),
+                        int(cell.unweighted_base or 0),
+                        cell.estimate,
+                    )
+                )
+            warnings.extend(
+                apply_pairwise_letters(
+                    row.cells,
+                    counts,
+                    alpha=table.significance.alpha,
+                    secondary_alpha=table.significance.secondary_alpha,
+                    correction=table.significance.correction,
+                    minimum_base=table.significance.minimum_effective_base,
+                    weighted=varied,
                 )
             )
-        warnings.extend(
-            apply_pairwise_letters(
-                row.cells,
-                counts,
-                alpha=table.significance.alpha,
-                secondary_alpha=table.significance.secondary_alpha,
-                correction=table.significance.correction,
-                minimum_base=table.significance.minimum_effective_base,
-                weighted=varied,
-            )
-        )
     return list(dict.fromkeys(warnings))
 
 
@@ -310,11 +370,11 @@ def _footnotes(table: TableSpec, defaults: StudyDefaults, weight_name: str | Non
         secondary = f"{(1 - table.significance.secondary_alpha) * 100:.0f}"
         minimum = table.significance.minimum_effective_base
         notes.append(
-            "Two-tailed z-test for unpooled proportions across banner columns. "
+            "Two-tailed z-test for unpooled proportions within each banner group. "
             f"UPPERCASE letters are significant at {primary}%. "
             f"Lowercase letters are significant at {secondary}%. "
-            f"A column base of {minimum} or less is marked '.' and is not tested. "
-            "The total column is not tested. "
+            f"A column base below {minimum} is marked '.' and is not tested. "
+            "Columns in different groups are not compared. The total column is not tested. "
             "Letters are not calculated when weights vary and no design effect was supplied."
         )
     return notes
