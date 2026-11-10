@@ -33,7 +33,10 @@ class DecipherProgram(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     validation_status: Literal["passed", "passed_with_warnings", "failed"]
     issues: list[str] = Field(default_factory=list)
-    launch: Literal["not_configured"] = "not_configured"
+    launch: Literal["not_configured", "uploaded", "failed"] = "not_configured"
+    launch_message: str | None = None
+    survey_path: str | None = None
+    survey_url: str | None = None
     file_id: str | None = None
     questionnaire_artifact_id: str | None = None
     questionnaire_version: int | None = None

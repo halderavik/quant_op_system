@@ -38,10 +38,10 @@ class Settings(BaseSettings):
     openai_tracing_disabled: bool = True
     run_tasks_inline: bool = False
     log_row_text: bool = False
-    # Reason: reserved for a future Forsta client. Nothing sends these values.
-    decipher_api_base: str = ""
+    # Reason: upload runs only when the key is set. The key never leaves this process.
+    decipher_api_base: str = "https://selfserve.decipherinc.com/api/v1"
     decipher_api_key: str = ""
-    decipher_company: str = ""
+    decipher_company: str = "self"
 
     @field_validator("storage_root", "session_db_path", mode="before")
     @classmethod

@@ -57,6 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """
     active = settings or get_settings()
     logging.getLogger().addFilter(_RedactKey(active.openai_api_key))
+    logging.getLogger().addFilter(_RedactKey(active.decipher_api_key))
     engine = make_engine(active)
     Base.metadata.create_all(engine)
     session_factory = make_session_factory(engine)

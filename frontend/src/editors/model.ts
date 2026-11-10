@@ -37,7 +37,7 @@ export type TableDraft = {
 export type CrosstabTable = {
   table_id?: string;
   title?: string;
-  columns?: { id: string; label: string }[];
+  columns?: { id: string; label: string; letter?: string }[];
   rows?: {
     label: string;
     cells: Record<

@@ -27,6 +27,9 @@ def settings(tmp_path: Path) -> Settings:
         run_tasks_inline=True,
         max_upload_mb=5,
         cors_origins="http://localhost:5173",
+        decipher_api_base="",
+        decipher_api_key="",
+        decipher_company="",
     )
 
 

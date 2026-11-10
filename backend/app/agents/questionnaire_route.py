@@ -16,6 +16,11 @@ _OTHER_WORK = (
     "tabspec",
     "chart",
 )
+_ANALYSIS_CONTEXT = re.compile(
+    r"\b(features?|profiling|segments?|segmentation|clusters?|clustering|"
+    r"eligible subgroup|run the task|imput\w*|top[- ]?2|top box|bottom box)\b",
+    re.I,
+)
 
 
 def is_question_edit(text: str) -> bool:
@@ -26,8 +31,9 @@ def is_question_edit(text: str) -> bool:
 
     Returns:
         True for a question, option, or bracket edit that is not another specialist task.
+        A reply about features, profiling variables, or running the analysis is not an edit.
     """
-    if any(token in text for token in _OTHER_WORK):
+    if any(token in text for token in _OTHER_WORK) or _ANALYSIS_CONTEXT.search(text):
         return False
     # Reason: method phrases such as "chi-square" belong to analysis even if they
     # mention a question. Importing here avoids a cycle with the intent module.

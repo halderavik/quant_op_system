@@ -121,6 +121,20 @@
 - [x] A10 All delivered downloads exist, are nonempty and can be opened.
 ## Discovered During Work
 
+- [x] T181 Upload programmed survey XML to Decipher when `DECIPHER_API_KEY` is set. (2026-11-10)
+- [x] T183 Set `delphi="1"` on compat 153 surveys and keep programmer notes out of radio, checkbox, and textarea. (2026-11-10)
+- [x] T184 Open a programmed survey at `/survey/{path}`, which is the respondent address Decipher serves. (2026-11-10)
+- [x] T185 When Decipher rejects survey.xml, correct the structure it names and upload again without asking. (2026-11-10)
+
+- [x] T182 Write and run a sandbox script for an analysis the registry does not implement, and ask in chat when a required choice is missing. (2026-11-10)
+- [x] T179 The analysis agent writes a data-aware plan, runs that plan in the sandbox, and offers the plan, script, and workbook for download. (2026-11-09)
+- [x] T180 A reply to an analysis question continues that segmentation instead of looking for a questionnaire. (2026-11-10)
+- [x] T181 Run the segmentation procedure the plan names, including PAM with Gower distance, instead of stopping at the original method list. (2026-11-10)
+- [x] T178 Run k-means on the variables that share a base, and name variables left out because they are empty or sit on a smaller base. (2026-11-09)
+- [x] T177 Route “build tab-specs” and “build the cross-tab spec” to tab-spec authoring, and treat “build it” after the missing-spec reply as that same request. (2026-11-09)
+- [x] T176 The validator authors the tab spec from the dataset profile, and a spec is saved only after a dry-run shows each table has a base. (2026-11-09)
+- [x] T175 Write the saved-spec crosstab as an example-style workbook the panel can open, one banner per table, instead of a single document too large to load. (2026-11-09)
+- [x] T174 Run cross-tabs from the latest saved tab spec when chat asks for the tables it just specified, instead of asking for row_variable and banner_variable. (2026-11-08)
 - [x] T173 Let the user download the open tab spec as an Excel plan styled like the example workbook. (2026-11-08)
 - [x] T172 Export and generate tab specs in the analyst workbook style, and test significance only within a banner group. (2026-11-08)
 - [x] T171 Rename the sidebar title to SRAS (Survey Research Agent Studio). (2026-11-08)

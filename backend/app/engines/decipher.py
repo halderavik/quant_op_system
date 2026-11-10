@@ -109,6 +109,8 @@ def _build(document: Questionnaire) -> tuple[str, list[CoverageItem], list[str],
             "name": _survey_name(document.title),
             "alt": document.title,
             "compat": "153",
+            # Reason: Decipher rejects compat 151 and higher unless delphi is set.
+            "delphi": "1",
             "builderCompatible": "1",
             "state": "testing",
             "secure": "1",

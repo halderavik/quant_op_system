@@ -115,9 +115,13 @@ def run_plan(frame: pd.DataFrame, plan: AnalysisPlan) -> AnalysisResult:
             "unsupported_method",
         )
     if method not in SUPPORTED_METHODS:
+        from app.engines.analysis.procedures import run_extension
+
+        extended = run_extension(frame, plan)
+        if extended is not None:
+            return extended
         raise AppError(
-            f"'{plan.method}' is not a registered method. Registered methods: "
-            + ", ".join(sorted(SUPPORTED_METHODS)),
+            f"'{plan.method}' has no implementation, so no result was published.",
             "unsupported_method",
         )
     missing = validate_roles(plan)

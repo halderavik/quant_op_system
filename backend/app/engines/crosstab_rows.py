@@ -143,7 +143,10 @@ def _multi_rows(
         series = frame[name]
         answered = ~_missing_mask(series, list(info.get("user_missing_values") or []))
         any_answered = any_answered | answered
-        selected.append((name, in_codes(series, [1])))
+        # Reason: specs written before punch codes existed counted 1. A validator
+        # spec sets selected_codes to the punch that is actually in the data.
+        codes = list(table.selected_codes) or [1]
+        selected.append((name, in_codes(series, codes)))
     eligible = filter_mask & any_answered
     rows = []
     union = pd.Series(False, index=frame.index)

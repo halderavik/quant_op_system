@@ -62,6 +62,7 @@ def _question_element(
     Returns:
         Question element.
     """
+    _notes(parent, question)
     node = add_element(
         parent,
         tag,
@@ -76,7 +77,7 @@ def _question_element(
 
 
 def _titles(node: ET.Element, question: Question) -> None:
-    """Add the respondent title, instruction, and programmer notes.
+    """Add the respondent title and instruction.
 
     Args:
         node: Question element.
@@ -85,18 +86,32 @@ def _titles(node: ET.Element, question: Question) -> None:
     add_element(node, "title", question.text)
     if question.instruction:
         add_element(node, "comment", question.instruction)
-    _notes(node, question)
 
 
-def _notes(node: ET.Element, question: Question) -> None:
-    """Copy programmer notes into hidden Decipher notes.
+def _notes(parent: ET.Element, question: Question) -> None:
+    """Copy programmer notes into comments placed before the question.
+
+    Decipher rejects a ``note`` element inside ``radio``, ``checkbox``, and
+    ``textarea``. Comments stay in the file and are not shown to respondents.
 
     Args:
-        node: Question element.
+        parent: Survey or block that will contain the question.
         question: Question.
     """
     for note in question.programmer_notes:
-        add_element(node, "note", note)
+        parent.append(ET.Comment(f" {question.id}: {_comment_body(note)} "))
+
+
+def _comment_body(note: str) -> str:
+    """Return note text that can sit inside an XML comment.
+
+    Args:
+        note: Programmer note.
+
+    Returns:
+        One line, with a double hyphen removed so the comment stays well formed.
+    """
+    return " ".join(note.split()).replace("--", "-")
 
 
 def _option_rows(node: ET.Element, question: Question) -> list[Punch]:

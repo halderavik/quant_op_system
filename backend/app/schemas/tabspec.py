@@ -57,6 +57,8 @@ class TableSpec(BaseModel):
     id: str
     title: str
     row_variable_names: list[str] = Field(default_factory=list)
+    # Empty means the engine counts code 1, which is what older specs did.
+    selected_codes: list[int] = Field(default_factory=list)
     table_type: Literal["categorical", "multiple_response", "numeric", "grid"] = "categorical"
     banner_ids: list[str] = Field(default_factory=list)
     base: TableBase = Field(default_factory=TableBase)
@@ -154,3 +156,50 @@ class ExternalMappingPreview(BaseModel):
     requires_confirmation: bool = False
     unsupported_entries: list[str] = Field(default_factory=list)
     tables: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class PlanBanner(BaseModel):
+    """One banner the validator chose. Codes must occur in the dataset."""
+
+    variable_name: str
+    plan: Literal["A", "B"]
+    label: str = ""
+    codes: list[int] = Field(default_factory=list)
+
+
+class PlanNet(BaseModel):
+    """A net the validator asked for. The engine computes the union."""
+
+    label: str
+    child_codes: list[int] = Field(default_factory=list)
+    child_variables: list[str] = Field(default_factory=list)
+
+
+class PlanTable(BaseModel):
+    """One table decision. This is not a count."""
+
+    title: str
+    row_variable_names: list[str]
+    table_type: Literal["categorical", "multiple_response", "numeric"]
+    selected_codes: list[int] = Field(default_factory=list)
+    banner_plans: list[Literal["A", "B"]] = Field(default_factory=list)
+    base: str = "All"
+    section: str = ""
+    nets: list[PlanNet] = Field(default_factory=list)
+    top_box_codes: list[int] = Field(default_factory=list)
+    bottom_box_codes: list[int] = Field(default_factory=list)
+
+
+class PlanExclusion(BaseModel):
+    """A column that must not become a crosstab."""
+
+    name: str
+    reason: str
+
+
+class TabulationPlan(BaseModel):
+    """Decisions the validator makes. The compiler turns them into a tab spec."""
+
+    banners: list[PlanBanner] = Field(default_factory=list)
+    tables: list[PlanTable] = Field(default_factory=list)
+    exclusions: list[PlanExclusion] = Field(default_factory=list)

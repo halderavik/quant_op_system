@@ -87,32 +87,102 @@ def _hold(table: TableSpec) -> str | None:
 
 
 def _runs_for_plans(table: TableSpec, banners: list[Banner]) -> list[TableSpec]:
-    """Run banner A and banner B as separate tables.
+    """Run each banner on its own, and keep plan A separate from plan B.
 
     Args:
         table: Table definition.
         banners: Banner catalog.
 
     Returns:
-        One table, or one copy per banner plan when the cell says ``A + B``.
+        One table per banner with categories. ``A + B`` still splits by plan first.
     """
     plans = [plan for plan in table.banner_plans if plan]
     if len(plans) <= 1:
-        return [table]
+        return _one_banner_each(table, banners)
     runs: list[TableSpec] = []
     for plan in plans:
         ids = [banner.id for banner in banners if banner.plan == plan]
-        runs.append(
-            table.model_copy(
-                update={
-                    "id": f"{table.id}-{plan}",
-                    "title": f"{table.title} (Banner {plan})",
-                    "banner_ids": ids or table.banner_ids,
-                    "banner_plans": [plan],
-                }
-            )
+        planned = table.model_copy(
+            update={
+                "id": f"{table.id}-{plan}",
+                "title": f"{table.title} (Banner {plan})",
+                "banner_ids": ids or table.banner_ids,
+                "banner_plans": [plan],
+            }
         )
+        runs.extend(_one_banner_each(planned, banners))
     return runs
+
+
+def _one_banner_each(table: TableSpec, banners: list[Banner]) -> list[TableSpec]:
+    """Give each populated banner its own table, matching one banner block per question.
+
+    Args:
+        table: Table definition.
+        banners: Banner catalog.
+
+    Returns:
+        The original table when it has at most one usable banner, otherwise one copy each.
+    """
+    usable: list[Banner] = []
+    for banner_id in table.banner_ids:
+        banner = _find_banner(banners, banner_id)
+        if banner is not None and banner.categories:
+            usable.append(banner)
+    if len(usable) <= 1:
+        if len(usable) == 1 and table.banner_ids != [usable[0].id]:
+            return [table.model_copy(update={"banner_ids": [usable[0].id]})]
+        return [table]
+    return [
+        table.model_copy(
+            update={
+                "id": f"{table.id}-{banner.id}",
+                "banner_ids": [banner.id],
+                "banner_plans": [banner.plan] if banner.plan else table.banner_plans,
+            }
+        )
+        for banner in usable
+    ]
+
+
+def _find_banner(banners: list[Banner], banner_id: str) -> Banner | None:
+    """Return a banner by id.
+
+    Args:
+        banners: Banner catalog.
+        banner_id: Banner id.
+
+    Returns:
+        The banner, or None when the id is not on the spec.
+    """
+    return next((banner for banner in banners if banner.id == banner_id), None)
+
+
+def _banner_fields(table: TableSpec, banners: list[Banner]) -> tuple[str, str, str]:
+    """Name the single banner the way the example workbook labels a block.
+
+    Args:
+        table: Table definition.
+        banners: Banner catalog.
+
+    Returns:
+        Variable name for the column header, ``Label: variable`` for the base line,
+        and the stub name for the table of contents.
+    """
+    stub = ", ".join(table.row_variable_names)
+    usable: list[Banner] = []
+    for banner_id in table.banner_ids:
+        banner = _find_banner(banners, banner_id)
+        if banner is not None and banner.categories:
+            usable.append(banner)
+    if len(usable) != 1:
+        return "", "", stub
+    banner = usable[0]
+    name = banner.variable_name or banner.id
+    label = banner.label or name
+    short = label.split(":", 1)[0].strip() if ":" in label and len(label) > 40 else label
+    caption = f"{short}: {name}" if name and short != name else short
+    return name, caption, stub
 
 
 def run_table(
@@ -158,6 +228,7 @@ def run_table(
         )
     if table.significance.enabled and rows:
         warnings.extend(_signify(rows, columns, table, weights, filter_mask, use_weight))
+    banner_name, banner_caption, stub_name = _banner_fields(table, banners)
     result = TableResult(
         table_id=table.id,
         title=table.title,
@@ -168,6 +239,9 @@ def run_table(
         warnings=warnings,
         weight_variable=weight_name,
         percent_type=defaults.percent_type,
+        banner_name=banner_name,
+        banner_caption=banner_caption,
+        stub_name=stub_name,
     )
     result.validation = {"status": "passed", "checks": ["bases", "percentage_bounds"]}
     return result

@@ -27,7 +27,7 @@ Task statuses: `queued`, `clarification_needed`, `running`, `validating`, `compl
 
 `ModelRouter` reads role ids from the environment. `GET /api/health` reports whether a key is set and does not call the network. `POST /api/models/probe` lists OpenAI account models and does not expect Claude ids in that list. Questionnaire drafting uses the OpenAI Agents SDK with structured output. Open-end coding and codeframe proposals use Claude when the coding model id starts with `claude`. Crosstabs, weights, tests, regression, clustering, and code frequencies do not.
 
-MaxDiff and conjoint raise `unsupported_method` and are not sent to the general sandbox.
+MaxDiff and conjoint raise `unsupported_method` and are not sent to the general sandbox. An analysis the registry does not implement is written as a Python script, checked, and run in the same analysis sandbox. Chat asks when a required choice is missing. A failed script is rewritten once from its stderr.
 
 ## Known limits
 
@@ -35,3 +35,4 @@ MaxDiff and conjoint raise `unsupported_method` and are not sent to the general 
 - External workbook detection maps a small header set and blocks ambiguous significance columns. It does not claim to parse every vendor layout.
 - The validator is deterministic. It checks bases, claim bindings, and export files. It does not use a second model to rewrite numbers.
 - Complex survey-design standard errors are out of scope. Weighted tables do not receive invented p-values.
+- An analysis outside the registry runs as a checked script in the sandbox. The script may use the installed scientific libraries. It cannot import other modules, call `open`, or use the network. A missing choice is asked in chat before a job starts. The script is rewritten once if it fails. MaxDiff and conjoint are still refused.

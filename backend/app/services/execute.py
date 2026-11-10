@@ -8,12 +8,11 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.engines.analysis.registry import run_plan, validate_roles
-from app.engines.analysis.report import build_report
+from app.engines.analysis.report import analysis_summary, build_report
 from app.engines.crosstab import run_table, run_tabspec
 from app.engines.invariants import summarize, validate_export, validate_report, validate_table
 from app.engines.spss import read_spss
 from app.engines.tabbook_excel import export_tabbook
-from app.engines.tabspec_build import build_tabspec
 from app.engines.tabspec_excel import export_tabspec
 from app.errors import AppError
 from app.repositories.records import (
@@ -239,7 +238,7 @@ def run_requested_analysis(
         "completed_with_warnings" if computed.warnings or gate.status != "passed" else "completed"
     )
     return {
-        "summary": f"Ran {plan.method} on {computed.sample_flow.get('valid_n')} complete rows. The report is bound to the computed fields.",
+        "summary": analysis_summary(plan.method, computed),
         "status": status,
         "artifact_id": revision.artifact_id,
         "version": revision.version,
@@ -248,48 +247,65 @@ def run_requested_analysis(
     }
 
 
-def build_project_tabspec(
-    db: Session, storage: Storage, project_id: str, weight: str | None
+async def build_project_tabspec(
+    db: Session,
+    storage: Storage,
+    settings: Settings,
+    project_id: str,
+    weight: str | None,
+    *,
+    session_id: str,
+    on_stage: Any,
 ) -> dict[str, Any]:
-    """Build a whole-study spec from the active questionnaire and dataset.
+    """Ask the validator for a spec and save it only after every table has a base.
 
     Args:
         db: Session.
         storage: Storage service.
+        settings: Application settings. The validator model writes the plan.
         project_id: Project id.
         weight: Optional confirmed weight variable.
+        session_id: SDK session id for the validator call.
+        on_stage: Records a chat stage. Called with one message string.
 
     Returns:
         Summary payload.
+
+    Raises:
+        AppError: No dataset is active, the snapshot cannot be read, or the spec still
+            produces an empty table.
     """
+    from app.services.tabspec_guard import author_executable_tabspec
+
     artifacts = ArtifactRepository(db)
     questionnaire_row = artifacts.latest_of_type(project_id, "questionnaire")
     questionnaire = (
         Questionnaire.model_validate(questionnaire_row.content) if questionnaire_row else None
     )
-    dataset = _optional_dataset(db, project_id)
-    variables = dataset.variables if dataset else None
-    frame = None
-    if dataset is not None:
-        try:
-            frame = load_frame(storage, dataset)
-        except (OSError, ValueError):
-            # Reason: a dataset row without a readable snapshot still gets a plan.
-            frame = None
-    spec = build_tabspec(
-        questionnaire,
-        variables,
-        dataset_id=dataset.id if dataset else None,
-        questionnaire_ref=(
-            {"artifact_id": questionnaire_row.artifact_id, "version": questionnaire_row.version}
-            if questionnaire_row
-            else None
-        ),
-        weight_variable=weight,
-        frame=frame,
+    dataset = _active_dataset(db, project_id)
+    try:
+        frame = load_frame(storage, dataset)
+    except (OSError, ValueError) as exc:
+        raise AppError(
+            "The dataset snapshot could not be read, so I cannot check that the tables have a base.",
+            "missing_dataset",
+        ) from exc
+    questionnaire_ref = (
+        {"artifact_id": questionnaire_row.artifact_id, "version": questionnaire_row.version}
+        if questionnaire_row
+        else None
     )
-    if dataset is not None:
-        _reject_missing_execution_names(spec, {item["name"] for item in dataset.variables})
+    spec, report, repairs = await author_executable_tabspec(
+        settings,
+        frame=frame,
+        variables=dataset.variables,
+        questionnaire=questionnaire,
+        dataset_id=dataset.id,
+        questionnaire_ref=questionnaire_ref,
+        weight_variable=weight,
+        session_id=session_id,
+        on_stage=on_stage,
+    )
     data = export_tabspec(spec)
     file_id = _write_export(
         db,
@@ -316,15 +332,22 @@ def build_project_tabspec(
         content_schema="tabspec/1",
         created_by="tabspec",
         derived_from=derived,
-        validation_status="passed",
+        validation_status=report.status,
     )
     excluded = len(spec.exclusions)
+    summary = (
+        f"Built {len(spec.tables)} tables the dataset can tabulate. "
+        f"{excluded} items were left off the crosstabs."
+    )
+    if repairs > 1:
+        summary += " The validator corrected the spec so each table has a base."
     return {
-        "summary": f"Built {len(spec.tables)} tables. {excluded} items were excluded with a reason. Unresolved mappings: {len(spec.unresolved_mappings)}.",
-        "status": "completed_with_warnings" if spec.unresolved_mappings else "completed",
+        "summary": summary,
+        "status": "completed_with_warnings" if spec.exclusions else "completed",
         "artifact_id": revision.artifact_id,
         "version": revision.version,
         "warnings": [item["reason"] for item in spec.exclusions[:5]],
+        "validation": report.model_dump(mode="json"),
     }
 
 
@@ -344,22 +367,6 @@ def _active_dataset(db: Session, project_id: str) -> Any:
             "Upload an SPSS file before running this. I will not invent a dataset.",
             "missing_dataset",
         )
-    return DatasetRepository(db).get(project.active_dataset_id)
-
-
-def _optional_dataset(db: Session, project_id: str) -> Any:
-    """Return the active dataset when one is selected.
-
-    Args:
-        db: Session.
-        project_id: Project id.
-
-    Returns:
-        Dataset or None.
-    """
-    project = ProjectRepository(db).get(project_id)
-    if not project.active_dataset_id:
-        return None
     return DatasetRepository(db).get(project.active_dataset_id)
 
 
@@ -417,26 +424,6 @@ def _single_spec(
             )
         ],
     )
-
-
-def _reject_missing_execution_names(spec: TabSpec, names: set[str]) -> None:
-    """Leave unresolved tables in the spec. Execution of those tables fails later.
-
-    Args:
-        spec: Tab spec.
-        names: Dataset variable names.
-    """
-    derived_names = {item.name for item in spec.derived_variables}
-    for table in spec.tables:
-        missing = [
-            name
-            for name in table.row_variable_names
-            if name not in names and name not in derived_names
-        ]
-        if missing:
-            table.notes.append(
-                "Unresolved dataset variable. This table will not run until it is mapped."
-            )
 
 
 def _crosstab_summary(result: TableResult, fields: dict[str, Any]) -> str:

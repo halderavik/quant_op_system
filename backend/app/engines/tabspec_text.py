@@ -11,6 +11,7 @@ _DEF = re.compile(rf"^(?P<var>{_IDENT})\s*=\s*(?P<codes>.+)$")
 _BASE = re.compile(rf"({_IDENT})\s*=\s*([0-9][0-9,\s–-]*)")
 _NET = re.compile(r"NET\s+(.+?)\s*\(([^)]+)\)", re.IGNORECASE)
 _BOX = re.compile(r"(Top-2|Bottom-2)\s*\(([^)]+)\)", re.IGNORECASE)
+_PUNCH = re.compile(r"Selected\s*\(([^)]+)\)", re.IGNORECASE)
 _DERIVED_PART = re.compile(
     rf"^(?P<code>\d+)\s*=\s*(?P<label>.+?)\s*\((?P<src>{_IDENT})\s*=\s*(?P<codes>[^)]+)\)$"
 )
@@ -153,6 +154,21 @@ def parse_base(text: str) -> tuple[Comparison | None, bool]:
     if len(codes) == 1:
         return Comparison(op="eq", ref=match.group(1), value=codes[0]), True
     return Comparison(op="in", ref=match.group(1), value=codes), True
+
+
+def parse_selected_codes(text: str) -> list[int]:
+    """Read the multi-response punch from a rows cell.
+
+    Args:
+        text: ``Rows / nets / stats`` cell.
+
+    Returns:
+        Punch codes, or an empty list when the cell does not name one.
+    """
+    match = _PUNCH.search(text or "")
+    if not match:
+        return []
+    return parse_code_list(match.group(1)) or []
 
 
 def parse_row_instruction(

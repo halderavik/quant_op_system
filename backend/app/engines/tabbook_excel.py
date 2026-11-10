@@ -12,6 +12,8 @@ _NAVY = "1F4E78"
 _GRAY = "E7E6E6"
 _ZEBRA = "F2F2F2"
 _HEADER = "DEEBF7"
+_COUNT = "555555"
+_SHEET = "Crosstabs_1"
 _PERCENT = {"category", "net", "top_box", "bottom_box"}
 
 
@@ -30,7 +32,7 @@ def export_tabbook(book: TabBook) -> bytes:
     workbook = Workbook()
     contents = workbook.active
     contents.title = "Table of Contents"
-    crosses = workbook.create_sheet("Crosstabs")
+    crosses = workbook.create_sheet(_SHEET)
     anchors = _write_tables(crosses, book)
     _write_contents(contents, book, anchors)
     buffer = BytesIO()
@@ -55,6 +57,7 @@ def _write_contents(sheet, book: TabBook, anchors: list[int]) -> None:
         size=22,
         fill=_NAVY,
         color="FFFFFF",
+        height=50,
     )
     notes = [
         (
@@ -79,11 +82,14 @@ def _write_contents(sheet, book: TabBook, anchors: list[int]) -> None:
     for number, (table, anchor) in enumerate(zip(book.tables, anchors, strict=True), start=1):
         sheet.cell(row, 1, number).font = _font(11)
         sheet.cell(row, 1).alignment = Alignment(horizontal="center")
-        sheet.cell(row, 2, table.table_id).font = _font(11)
-        sheet.cell(row, 3, table.title).font = _font(11)
+        sheet.cell(row, 2, table.stub_name or table.table_id).font = _font(11)
+        description = table.title
+        if table.banner_caption:
+            description = f"{table.title} | {table.banner_caption}"
+        sheet.cell(row, 3, description).font = _font(11)
         link = sheet.cell(row, 4, "Jump to Table")
         link.font = Font(name="Calibri", size=11, color="0000FF", underline="single")
-        link.hyperlink = f"#Crosstabs!A{anchor}"
+        link.hyperlink = f"#'{_SHEET}'!A{anchor}"
         row += 1
     for item in book.exceptions:
         sheet.cell(row, 2, item.get("table_id") or "").font = _font(11)
@@ -91,11 +97,10 @@ def _write_contents(sheet, book: TabBook, anchors: list[int]) -> None:
         row += 1
     if not book.tables and not book.exceptions:
         sheet.cell(row, 3, "No tables were computed.").font = _font(11)
-    sheet.column_dimensions["A"].width = 10
-    sheet.column_dimensions["B"].width = 24
-    sheet.column_dimensions["C"].width = 88
-    sheet.column_dimensions["D"].width = 16
-    sheet.row_dimensions[1].height = 28
+    sheet.column_dimensions["A"].width = 9
+    sheet.column_dimensions["B"].width = 22
+    sheet.column_dimensions["C"].width = 96
+    sheet.column_dimensions["D"].width = 18
 
 
 def _write_tables(sheet, book: TabBook) -> list[int]:
@@ -121,7 +126,7 @@ def _write_tables(sheet, book: TabBook) -> list[int]:
         widest = max(widest, 1 + len(table.columns))
     sheet.column_dimensions["A"].width = 96
     for index in range(2, widest + 1):
-        sheet.column_dimensions[get_column_letter(index)].width = 18
+        sheet.column_dimensions[get_column_letter(index)].width = 23
     return anchors
 
 
@@ -136,13 +141,13 @@ def _write_table(sheet, start: int, table: TableResult) -> int:
     Returns:
         The next free row after the separator.
     """
-    columns = table.columns or []
+    columns = [column for column in table.columns if column.id != "total"] or list(table.columns)
     width = max(1 + len(columns), 2)
-    _band(sheet, start, width, table.title, size=18, fill=_NAVY, color="FFFFFF")
+    _band(sheet, start, width, f"  {table.title}", size=18, fill=_NAVY, color="FFFFFF", height=60)
     _band(sheet, start + 1, width, _base_line(table), size=11, fill=_GRAY, color="000000")
     _paint_row(sheet, start + 2, width, _font(12, bold=True, color="FFFFFF"), _fill(_NAVY))
     sheet.cell(start + 2, 1, "Response Category")
-    sheet.cell(start + 2, 2, _banner_name(table))
+    sheet.cell(start + 2, 2, table.banner_name or _banner_name(table))
     header_row = start + 3
     for offset, column in enumerate(columns):
         if column.id == "total" or not column.letter:
@@ -150,7 +155,7 @@ def _write_table(sheet, start: int, table: TableResult) -> int:
         else:
             text = f"{column.label}\n[{column.letter}]"
         cell = sheet.cell(header_row, 2 + offset, text)
-        cell.font = _font(11, color="FFFFFF")
+        cell.font = _font(12, bold=True, color="FFFFFF")
         cell.fill = _fill(_NAVY)
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     sheet.row_dimensions[header_row].height = 32
@@ -164,9 +169,9 @@ def _write_table(sheet, start: int, table: TableResult) -> int:
             label.fill = shade
         _value_row(sheet, cursor, columns, result_row, shade, percent)
         _count_row(sheet, cursor + 1, columns, result_row, shade)
-        _letter_row(sheet, cursor + 2, columns, result_row)
+        _letter_row(sheet, cursor + 2, columns, result_row, shade)
         cursor += 3
-    return cursor + 6
+    return cursor + 8
 
 
 def _paint_row(sheet, row: int, width: int, font: Font, fill: PatternFill) -> None:
@@ -226,7 +231,7 @@ def _count_row(sheet, row: int, columns, result_row, shade) -> None:
     for offset, column in enumerate(columns):
         cell = result_row.cells.get(column.id)
         target = sheet.cell(row, 2 + offset)
-        target.font = _font(11)
+        target.font = _font(11, color=_COUNT)
         target.alignment = Alignment(horizontal="center")
         if shade:
             target.fill = shade
@@ -235,7 +240,7 @@ def _count_row(sheet, row: int, columns, result_row, shade) -> None:
             target.number_format = "#,##0"
 
 
-def _letter_row(sheet, row: int, columns, result_row) -> None:
+def _letter_row(sheet, row: int, columns, result_row, shade) -> None:
     """Write the significance-letter row.
 
     Args:
@@ -243,15 +248,21 @@ def _letter_row(sheet, row: int, columns, result_row) -> None:
         row: Row number.
         columns: Table columns.
         result_row: Result row.
+        shade: Zebra fill used when a column has no letters.
     """
     for offset, column in enumerate(columns):
         cell = result_row.cells.get(column.id)
+        letters = cell.significance_letters if cell else ""
         target = sheet.cell(row, 2 + offset)
-        target.font = _font(11, color="FFFFFF")
-        target.fill = _fill(_NAVY)
         target.alignment = Alignment(horizontal="center")
-        if cell and cell.significance_letters:
-            target.value = cell.significance_letters
+        if letters:
+            target.value = letters
+            target.font = _font(9, bold=True, color="FFFFFF")
+            target.fill = _fill(_NAVY)
+        else:
+            target.font = _font(9)
+            if shade:
+                target.fill = shade
 
 
 def _base_line(table: TableResult) -> str:
@@ -272,7 +283,8 @@ def _base_line(table: TableResult) -> str:
             base = cell.unweighted_base
     weight = "Weighted" if table.weight_variable else "Unweighted"
     shown = base if base is not None else "—"
-    return f"N={shown} | {_banner_name(table)} | {weight}"
+    banner = table.banner_caption or _banner_name(table)
+    return f"N={shown} | {banner} | {weight}"
 
 
 def _banner_name(table: TableResult) -> str:
@@ -294,7 +306,17 @@ def _banner_name(table: TableResult) -> str:
     return ", ".join(names) if names else "Total"
 
 
-def _band(sheet, row: int, width: int, text: str, *, size: int, fill: str, color: str) -> None:
+def _band(
+    sheet,
+    row: int,
+    width: int,
+    text: str,
+    *,
+    size: int,
+    fill: str,
+    color: str,
+    height: float | None = None,
+) -> None:
     """Merge a row and paint it as a title or base band.
 
     Args:
@@ -305,7 +327,10 @@ def _band(sheet, row: int, width: int, text: str, *, size: int, fill: str, color
         size: Font size.
         fill: Fill color.
         color: Font color.
+        height: Row height in points, when the band is a title.
     """
+    if height is not None:
+        sheet.row_dimensions[row].height = height
     sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=width)
     paint = _fill(fill)
     font = _font(size, bold=True, color=color)

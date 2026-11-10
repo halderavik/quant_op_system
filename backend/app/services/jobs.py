@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import shutil
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -27,6 +29,13 @@ def execute_job(
     inputs: dict[str, str] | None = None,
     prompt: str | None = None,
     store_traces: bool = False,
+    binaries: dict[str, Path] | None = None,
+    script_name: str = "main.py",
+    read_roots: list[Path] | None = None,
+    pythonpath: str | None = None,
+    force_subprocess: bool = False,
+    extra_mounts: list[tuple[Path, str]] | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> Job:
     """Insert one job, run the script, and store the outcome on that row.
 
@@ -40,6 +49,13 @@ def execute_job(
         inputs: Basename-to-text files written into the job directory before the run.
         prompt: User text. Stored only when ``store_traces`` is true.
         store_traces: When false, prompt text is omitted from the row and logs.
+        binaries: Basename-to-path files copied into the job directory.
+        script_name: Script filename inside the job directory.
+        read_roots: Extra directories the subprocess may read.
+        pythonpath: ``PYTHONPATH`` for the subprocess.
+        force_subprocess: Skip Docker and use the app interpreter.
+        extra_mounts: Read-only mounts used only by Docker.
+        extra_env: Extra Docker environment entries.
 
     Returns:
         The same job row, updated to a terminal status.
@@ -58,12 +74,20 @@ def execute_job(
     job_dir.mkdir(parents=True, exist_ok=True)
     for name, text in (inputs or {}).items():
         (job_dir / name).write_text(text, encoding="utf-8")
+    for name, source in (binaries or {}).items():
+        shutil.copyfile(source, job_dir / name)
     result = run_script(
         settings,
         job_dir,
         script,
         timeout=settings.sandbox_timeout_seconds,
         job_id=job.id,
+        script_name=script_name,
+        read_roots=read_roots,
+        pythonpath=pythonpath,
+        force_subprocess=force_subprocess,
+        extra_mounts=extra_mounts,
+        extra_env=extra_env,
     )
     stdout = _scrub(result.get("stdout") or "", prompt, store_traces)
     stderr = _scrub(result.get("stderr") or "", prompt, store_traces)

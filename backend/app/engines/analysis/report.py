@@ -86,6 +86,44 @@ def build_report(title: str, result: AnalysisResult) -> AnalysisReport:
     )
 
 
+def analysis_summary(method: str, result: AnalysisResult) -> str:
+    """Return the chat sentence for a finished analysis.
+
+    Args:
+        method: Registered method name.
+        result: Computed result.
+
+    Returns:
+        Summary that names the sample and any variables left out of clustering.
+    """
+    label = "k-means clustering" if method == "clustering" else method.replace("_", " ")
+    notes = [item for item in result.warnings if item.startswith("Left out ")]
+    detail = f" {' '.join(notes)}" if notes else ""
+    return (
+        f"Ran {label} on {result.sample_flow.get('valid_n')} complete rows.{detail} "
+        "The report is bound to the computed fields."
+    )
+
+
+def workflow_summary(objective: str, steps: list[str], valid_n: object) -> str:
+    """Return the chat sentence for a planned sandbox analysis.
+
+    Args:
+        objective: Plan objective.
+        steps: Step kinds in order.
+        valid_n: Analysis sample size.
+
+    Returns:
+        Summary that names the steps and the downloads.
+    """
+    names = ", ".join(step.replace("_", " ") for step in steps) or "the plan"
+    return (
+        f"Planned {len(steps)} steps ({names}) for {objective} and ran them in the sandbox "
+        f"on {valid_n} complete rows. The analysis plan, the script, and the workbook "
+        "are in the results panel."
+    )
+
+
 def render_claims(claims: list[ReportClaim]) -> str:
     """Join claim sentences in order.
 

@@ -33,6 +33,58 @@ class VariableRole(BaseModel):
     positive_code: Any = None
 
 
+StepKind = Literal[
+    "impute_missing",
+    "top_box",
+    "bottom_box",
+    "listwise",
+    "choose_k",
+    "method",
+    "profile_crosstab",
+    "report",
+]
+
+
+class AnalysisStep(BaseModel):
+    """One planned action. Variable names must exist on the dataset profile."""
+
+    step_id: str
+    kind: StepKind
+    variables: list[str] = Field(default_factory=list)
+    reason: str
+    strategy: Literal["median", "mode", ""] = ""
+    box: int = 2
+    method: str = ""
+    dependent: str = ""
+    predictors: list[str] = Field(default_factory=list)
+    group: str = ""
+    var_a: str = ""
+    var_b: str = ""
+    # Reason: 0 means the user did not choose k. The run picks it by silhouette.
+    k: int = 0
+    codes: list[str] = Field(default_factory=list)
+    # Reason: used only when the method name has no built-in procedure.
+    procedure: str = ""
+
+
+class AnalysisWorkflow(BaseModel):
+    """Ordered analysis the sandbox runs. The model fills this in before any statistic."""
+
+    analysis_id: str = ""
+    dataset_id: str | None = None
+    objective: str
+    data_facts: list[str] = Field(default_factory=list)
+    steps: list[AnalysisStep] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    random_seed: int = 42
+    weight_variable: str = ""
+    status: Literal["ready", "clarification_needed"] = "ready"
+    clarification: str = ""
+    missing_choices: list[str] = Field(default_factory=list)
+    # Reason: filled after planning, when the method has no built-in runner.
+    program: str = ""
+
+
 class AnalysisPlan(BaseModel):
     """Typed plan executed by a registered plugin."""
 

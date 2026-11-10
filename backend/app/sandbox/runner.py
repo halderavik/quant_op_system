@@ -17,9 +17,23 @@ _PROCESSES: dict[str, subprocess.Popen] = {}
 _DOCKER_READY: bool | None = None
 
 _WRAPPER = """
-import builtins, os, pathlib
+import builtins, os, pathlib, sys
 ROOT = pathlib.Path(os.environ["SANDBOX_ROOT"]).resolve()
 _open = builtins.open
+_read = []
+for item in os.environ.get("SANDBOX_READ_ROOTS", "").split(os.pathsep):
+    if item:
+        _read.append(pathlib.Path(item).resolve())
+if _read:
+    _read.append(pathlib.Path(sys.prefix).resolve())
+    _read.append(pathlib.Path(sys.base_prefix).resolve())
+
+def _inside(path, root):
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
 
 def _guard(file, mode="r", *args, **kwargs):
     path = pathlib.Path(file)
@@ -27,7 +41,12 @@ def _guard(file, mode="r", *args, **kwargs):
         path = (pathlib.Path.cwd() / path).resolve()
     else:
         path = path.resolve()
-    if not str(path).startswith(str(ROOT)):
+    writing = any(flag in str(mode) for flag in ("w", "a", "x", "+"))
+    if writing:
+        allowed = _inside(path, ROOT)
+    else:
+        allowed = _inside(path, ROOT) or any(_inside(path, root) for root in _read)
+    if not allowed:
         raise PermissionError("path outside the job directory")
     return _open(path, mode, *args, **kwargs)
 
@@ -76,18 +95,27 @@ def _docker_daemon_ready() -> bool:
     return "server version" in text or "serverversion" in text
 
 
-def docker_command(settings: Settings, job_dir: Path, script_name: str) -> list[str]:
+def docker_command(
+    settings: Settings,
+    job_dir: Path,
+    script_name: str,
+    *,
+    extra_mounts: list[tuple[Path, str]] | None = None,
+    extra_env: dict[str, str] | None = None,
+) -> list[str]:
     """Build a docker run command that has no network and no API key.
 
     Args:
         settings: Application settings.
         job_dir: Host job directory mounted at ``/work``.
         script_name: Script filename inside the job directory.
+        extra_mounts: Read-only host path and container path pairs.
+        extra_env: Extra environment entries. Do not pass API keys.
 
     Returns:
         Argument list. API keys are not included.
     """
-    return [
+    command = [
         "docker",
         "run",
         "--rm",
@@ -95,14 +123,14 @@ def docker_command(settings: Settings, job_dir: Path, script_name: str) -> list[
         "none",
         "--memory",
         f"{settings.sandbox_memory_mb}m",
-        "-v",
-        f"{job_dir.resolve()}:/work:rw",
-        "-w",
-        "/work",
-        settings.sandbox_image,
-        "python",
-        script_name,
     ]
+    for key, value in (extra_env or {}).items():
+        command.extend(["-e", f"{key}={value}"])
+    command.extend(["-v", f"{job_dir.resolve()}:/work:rw"])
+    for host, guest in extra_mounts or []:
+        command.extend(["-v", f"{host.resolve()}:{guest}:ro"])
+    command.extend(["-w", "/work", settings.sandbox_image, "python", script_name])
+    return command
 
 
 def cancel_process(job_id: str) -> bool:
@@ -127,6 +155,13 @@ def run_script(
     script: str,
     timeout: int | None = None,
     job_id: str | None = None,
+    *,
+    script_name: str = "main.py",
+    read_roots: list[Path] | None = None,
+    pythonpath: str | None = None,
+    force_subprocess: bool = False,
+    extra_mounts: list[tuple[Path, str]] | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> dict:
     """Execute a script in Docker or the labelled subprocess fallback.
 
@@ -136,16 +171,29 @@ def run_script(
         script: Python source.
         timeout: Seconds before the process is killed.
         job_id: Optional id so a cancel request can kill this process.
+        script_name: Filename written inside the job directory.
+        read_roots: Extra directories the subprocess may read. The interpreter
+            prefix is included so pandas and scikit-learn can import.
+        pythonpath: ``PYTHONPATH`` for the subprocess.
+        force_subprocess: Skip Docker and use the app interpreter.
+        extra_mounts: Read-only mounts used only by Docker.
+        extra_env: Extra Docker environment entries. Do not pass API keys.
 
     Returns:
         Manifest with isolation mode, exit code, and output tails.
     """
     job_dir.mkdir(parents=True, exist_ok=True)
-    script_path = job_dir / "main.py"
+    script_path = job_dir / script_name
     script_path.write_text(script, encoding="utf-8")
     limit = timeout or settings.sandbox_timeout_seconds
-    if docker_available():
-        command = docker_command(settings, job_dir, "main.py")
+    if docker_available() and not force_subprocess:
+        command = docker_command(
+            settings,
+            job_dir,
+            script_name,
+            extra_mounts=extra_mounts,
+            extra_env=extra_env,
+        )
         code, stdout_b, stderr_b, timed_out = _spawn(
             command, cwd=None, env=_clean_env(), timeout=limit, job_id=job_id
         )
@@ -157,6 +205,10 @@ def run_script(
         env = _clean_env()
         env["SANDBOX_ROOT"] = str(job_dir.resolve())
         env["SANDBOX_SCRIPT"] = str(script_path.resolve())
+        if read_roots:
+            env["SANDBOX_READ_ROOTS"] = os.pathsep.join(str(path.resolve()) for path in read_roots)
+        if pythonpath:
+            env["PYTHONPATH"] = pythonpath
         code, stdout_b, stderr_b, timed_out = _spawn(
             [sys.executable, str(wrapper)],
             cwd=str(job_dir),
@@ -165,9 +217,17 @@ def run_script(
             job_id=job_id,
         )
         isolation = "subprocess_fallback"
+        if force_subprocess and docker_available():
+            reason = (
+                "This analysis used the app interpreter because the configured sandbox image "
+                "does not include the scientific libraries. "
+            )
+        else:
+            reason = "Docker is not available. "
         warning = (
-            "Docker is not available. This run used a subprocess with the API key removed "
-            "and file access limited to the job directory. That is reduced isolation, not a secure sandbox. "
+            reason
+            + "This run used a subprocess with the API key removed and file access limited to the job directory. "
+            "That is reduced isolation, not a secure sandbox. "
             f"The configured memory cap is {settings.sandbox_memory_mb} MB and is enforced when Docker runs the job."
         )
     stdout = stdout_b.decode("utf-8", errors="replace")
@@ -238,4 +298,5 @@ def _clean_env() -> dict[str, str]:
     env.pop("OPENAI_API_KEY", None)
     env.pop("ANTHROPIC_API_KEY", None)
     env["PYTHONNOUSERSITE"] = "1"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     return env

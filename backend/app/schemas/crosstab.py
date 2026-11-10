@@ -54,6 +54,9 @@ class TableResult(BaseModel):
     validation: dict[str, object] = Field(default_factory=dict)
     weight_variable: str | None = None
     percent_type: str = "column"
+    banner_name: str = ""
+    banner_caption: str = ""
+    stub_name: str = ""
 
 
 class TabBook(BaseModel):

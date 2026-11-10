@@ -13,6 +13,7 @@ from app.engines.tabspec_text import (
     parse_definition,
     parse_derived_definition,
     parse_row_instruction,
+    parse_selected_codes,
 )
 from app.schemas.tabspec import (
     Banner,
@@ -190,6 +191,7 @@ def _read_tables(
                 stub_label=str(row[2] or ""),
                 title=str(row[3] or row[0]),
                 row_variable_names=_stub_names(str(row[2] or "")),
+                selected_codes=parse_selected_codes(instruction),
                 table_type=_PLAN_TYPE.get(plan_type, "categorical"),  # type: ignore[arg-type]
                 plan_type=plan_type,
                 base_text=base_text,

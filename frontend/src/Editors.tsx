@@ -246,7 +246,9 @@ export function ArtifactEditor({
             }}
           />
         )}
-        {artifact.type === "crosstab" && <CrosstabViewer content={draft} version={latest.version} />}
+        {artifact.type === "crosstab" && (
+          <CrosstabViewer artifactId={artifact.id} content={draft} version={latest.version} />
+        )}
         {artifact.type === "analysis" && (
           <AnalysisViewer
             content={draft}

@@ -227,17 +227,21 @@ def test_tabbook_uses_the_stacked_layout() -> None:
     )
     result = run_table(frame, _meta(), spec, StudyDefaults(), _banners())
     workbook = load_workbook(BytesIO(export_tabbook(TabBook(tables=[result]))))
-    assert workbook.sheetnames == ["Table of Contents", "Crosstabs"]
+    assert workbook.sheetnames == ["Table of Contents", "Crosstabs_1"]
     assert "UNPOOLED" in workbook["Table of Contents"]["A3"].value
     assert workbook["Table of Contents"]["D8"].value == "Jump to Table"
     link = workbook["Table of Contents"]["D8"].hyperlink
-    assert "Crosstabs!A1" in f"{link.target or ''}{link.location or ''}"
-    crosses = workbook["Crosstabs"]
-    assert crosses["A1"].value == "Trust by gender"
+    target = f"{link.target or ''}{link.location or ''}"
+    assert "Crosstabs_1" in target and "A1" in target
+    crosses = workbook["Crosstabs_1"]
+    assert crosses["A1"].value == "  Trust by gender"
     assert str(crosses["A1"].font.color.rgb).endswith("FFFFFF")
+    assert crosses["A2"].value.startswith("N=")
+    assert "Gender: gender" in crosses["A2"].value
+    assert crosses["B3"].value == "gender"
     percent = crosses["B5"]
     assert percent.number_format == "0.0%"
-    assert percent.value == pytest.approx(result.rows[0].cells["total"].estimate / 100)
+    assert percent.value == pytest.approx(result.rows[0].cells["bn1:Male"].estimate / 100)
 
 
 def test_unknown_variable_fails() -> None:

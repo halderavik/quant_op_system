@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.agents.intent import build_contract
 from app.agents.questionnaire_route import assistant_published_questionnaire
 from app.agents.sdk import run_structured
+from app.agents.spec_run_intent import assistant_offered_tabspec
 from app.config import Settings
 from app.errors import AppError
 from app.models import Task
@@ -22,11 +23,11 @@ from app.services.documents import (
 )
 from app.services.execute import (
     build_project_tabspec,
-    run_requested_analysis,
     run_requested_crosstab,
 )
 from app.services.storage import Storage
 from app.services.study_materials import questionnaire_prompt
+from app.services.tabspec_run import run_saved_tabspec
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,8 @@ class Orchestrator:
             task = tasks.get(task_id)
             task.status = (
                 "clarification_needed"
-                if exc.code in {"clarification_needed", "missing_roles", "missing_dataset"}
+                if exc.code
+                in {"clarification_needed", "missing_roles", "missing_dataset", "missing_tabspec"}
                 else "failed"
             )
             task.error = exc.message
@@ -132,9 +134,12 @@ class Orchestrator:
         file_ids = [str(item) for item in (task.contract.get("file_ids") or [])]
         history = ProjectRepository(db).messages(task.conversation_id)
         previous_assistant = next(
-            (row.content for row in reversed(history) if row.role == "assistant"),
-            "",
+            (row for row in reversed(history) if row.role == "assistant"),
+            None,
         )
+        previous_text = previous_assistant.content if previous_assistant else ""
+        analysis_followup, prior_request = _prior_analysis_request(db, previous_assistant)
+        artifacts = ArtifactRepository(db)
         contract = build_contract(
             task_id=task.id,
             project_id=task.project_id,
@@ -142,11 +147,13 @@ class Orchestrator:
             text=str(task.contract.get("user_request") or ""),
             variable_names=dataset_names,
             has_dataset=bool(project.active_dataset_id),
-            has_questionnaire=ArtifactRepository(db).latest_of_type(
-                task.project_id, "questionnaire"
-            )
+            has_questionnaire=artifacts.latest_of_type(task.project_id, "questionnaire")
             is not None,
-            continuing=assistant_published_questionnaire(previous_assistant),
+            has_tabspec=artifacts.latest_of_type(task.project_id, "tabspec") is not None,
+            continuing=assistant_published_questionnaire(previous_text),
+            offered_tabspec=assistant_offered_tabspec(previous_text),
+            analysis_followup=analysis_followup,
+            prior_analysis_request=prior_request,
         )
         task.contract = contract.model_dump(mode="json")
         if contract.missing_required:
@@ -156,6 +163,9 @@ class Orchestrator:
                 detail += f" The available fields include {names}."
             raise AppError(detail.strip(), "missing_roles")
         text = contract.user_request
+        if contract.intent == "run_saved_tabspec":
+            self._event(db, task, "running", {"message": "Calculating"})
+            return run_saved_tabspec(db, self.storage, task.project_id)
         if contract.intent == "run_crosstab":
             self._event(db, task, "running", {"message": "Calculating"})
             return run_requested_crosstab(
@@ -166,21 +176,49 @@ class Orchestrator:
                 enable_significance="significan" in text.lower(),
             )
         if contract.intent == "run_analysis":
-            self._event(db, task, "running", {"message": "Calculating"})
-            return run_requested_analysis(
-                db, self.storage, task.project_id, contract.provided_fields
+            from app.services.analysis_run import run_planned_analysis
+
+            def _stage(message: str) -> None:
+                """Record one analysis stage.
+
+                Args:
+                    message: Stage text, not model output.
+                """
+                self._event(db, task, "running", {"message": message})
+
+            return await run_planned_analysis(
+                db,
+                self.storage,
+                self.settings,
+                task.project_id,
+                request=text,
+                hints=contract.provided_fields,
+                session_id=ProjectRepository(db).conversation(task.conversation_id).sdk_session_id,
+                on_stage=_stage,
             )
         if contract.intent == "program_decipher":
             from app.services.decipher_program import program_decipher_survey
 
             self._event(db, task, "running", {"message": "Programming the Decipher survey"})
-            return program_decipher_survey(db, self.storage, task.project_id)
+            return program_decipher_survey(db, self.storage, task.project_id, self.settings)
         if contract.intent == "build_tabspec":
-            return build_project_tabspec(
+
+            def _stage(message: str) -> None:
+                """Record one tab-spec stage.
+
+                Args:
+                    message: Stage text, not model output.
+                """
+                self._event(db, task, "running", {"message": message})
+
+            return await build_project_tabspec(
                 db,
                 self.storage,
+                self.settings,
                 task.project_id,
                 contract.provided_fields.get("weight_variable"),
+                session_id=ProjectRepository(db).conversation(task.conversation_id).sdk_session_id,
+                on_stage=_stage,
             )
         if contract.intent == "revise_questionnaire":
             if literal_questionnaire_edit(text):
@@ -405,3 +443,26 @@ def _dataset_names(db: Session, project: object) -> list[str]:
         return []
     dataset = DatasetRepository(db).get(active)
     return [item["name"] for item in dataset.variables]
+
+
+def _prior_analysis_request(db: Session, previous: object | None) -> tuple[bool, str]:
+    """Return the analysis request when the last turn asked a question.
+
+    Args:
+        db: Session.
+        previous: Previous assistant message, or None.
+
+    Returns:
+        Whether this turn continues that analysis, and the original request.
+    """
+    task_id = getattr(previous, "task_id", None)
+    if not task_id:
+        return False, ""
+    try:
+        prior = TaskRepository(db).get(task_id)
+    except AppError:
+        return False, ""
+    contract = prior.contract or {}
+    if prior.status != "clarification_needed" or contract.get("intent") != "run_analysis":
+        return False, ""
+    return True, str(contract.get("user_request") or "")

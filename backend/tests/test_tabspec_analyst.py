@@ -205,6 +205,60 @@ def test_significance_letters_stay_inside_one_group() -> None:
     assert low.cells["region:South"].significance_letters == ""
 
 
+def test_each_banner_in_a_plan_is_its_own_table() -> None:
+    """One question crossed by two banners becomes two tables, each with one banner."""
+    banners = [
+        Banner(
+            id="gender",
+            label="Gender",
+            plan="A",
+            variable_name="gender",
+            categories=[
+                BannerCategory(label="Male", codes=[1]),
+                BannerCategory(label="Female", codes=[2]),
+            ],
+        ),
+        Banner(
+            id="region",
+            label="Region",
+            plan="A",
+            variable_name="region",
+            categories=[
+                BannerCategory(label="North", codes=[1]),
+                BannerCategory(label="South", codes=[2]),
+            ],
+        ),
+    ]
+    spec = TabSpec(
+        spec_id="split-banners",
+        banners=banners,
+        tables=[
+            TableSpec(
+                id="T1",
+                title="Trust",
+                row_variable_names=["trust"],
+                banner_ids=["gender", "region"],
+                banner_plans=["A"],
+            )
+        ],
+    )
+    frame = pd.DataFrame({"trust": [1, 2], "gender": [1, 2], "region": [1, 2]})
+    meta = [
+        {"name": "trust", "value_labels": {"1": "Yes", "2": "No"}, "user_missing_values": []},
+        {"name": "gender", "value_labels": {}, "user_missing_values": []},
+        {"name": "region", "value_labels": {}, "user_missing_values": []},
+    ]
+    book = run_tabspec(frame, meta, spec)
+    assert {table.table_id for table in book.tables} == {"T1-gender", "T1-region"}
+    gender = next(table for table in book.tables if table.table_id == "T1-gender")
+    assert gender.banner_name == "gender"
+    assert gender.banner_caption == "Gender: gender"
+    assert [column.id for column in gender.columns if column.id != "total"] == [
+        "gender:Male",
+        "gender:Female",
+    ]
+
+
 def test_banner_a_and_b_run_as_separate_tables() -> None:
     """A + B produces one result per plan, not one combined test."""
     banners = [

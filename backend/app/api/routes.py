@@ -24,6 +24,53 @@ from app.schemas.project import MessageIn, ProjectCreate, ProjectUpdate
 router = APIRouter()
 router.include_router(library_router)
 router.include_router(jobs_router)
+
+
+@router.get("/artifacts/{artifact_id}/tables/{table_id}")
+def crosstab_table(
+    artifact_id: str, table_id: str, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    """Return one computed table for the panel.
+
+    Args:
+        artifact_id: Crosstab artifact id.
+        table_id: Table id inside that book.
+        request: Current request.
+        db: Session.
+
+    Returns:
+        Columns and cells for that table.
+    """
+    from app.models import Artifact
+    from app.repositories.records import ArtifactRepository
+    from app.services.tabbook_store import read_stored_table
+
+    revision = ArtifactRepository(db).latest(artifact_id)
+    if revision is None:
+        raise AppError("Artifact not found", "not_found", 404)
+    content = revision.content or {}
+    lines_rel = content.get("tables_relpath")
+    index_rel = content.get("index_relpath")
+    artifact = db.get(Artifact, artifact_id)
+    if artifact is None:
+        raise AppError("Artifact not found", "not_found", 404)
+    if lines_rel and index_rel:
+        return read_stored_table(
+            request.app.state.storage, artifact.project_id, str(lines_rel), str(index_rel), table_id
+        )
+    for table in content.get("tables") or []:
+        if isinstance(table, dict) and table.get("table_id") == table_id and table.get("rows"):
+            return table
+    embedded = content.get("table")
+    if isinstance(embedded, dict) and embedded.get("table_id") == table_id:
+        return embedded
+    raise AppError(
+        "This book has no saved table grid. Generate the cross-tabs again.",
+        "not_found",
+        404,
+    )
+
+
 _TERMINAL = {"completed", "completed_with_warnings", "failed", "cancelled", "clarification_needed"}
 
 

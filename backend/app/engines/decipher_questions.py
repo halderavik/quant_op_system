@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 from app.engines.decipher_expr import safe_label
 from app.engines.decipher_markup import (
     SurveyBuild,
+    _comment_body,
     _condition,
     _item,
     _notes,
@@ -241,6 +242,7 @@ def _loop(parent: ET.Element, question: Question, build: SurveyBuild) -> Coverag
         Coverage item.
     """
     label = build.labels[question.id]
+    _notes(parent, question)
     node = add_element(parent, "loop", label=label, vars="item", cond=_condition(question, build))
     _titles(node, question)
     block_label = safe_label(f"Block_{label}_body", build.used)
@@ -268,7 +270,8 @@ def _display(parent: ET.Element, question: Question, build: SurveyBuild) -> Cove
     Returns:
         Coverage item.
     """
-    node = add_element(
+    _notes(parent, question)
+    add_element(
         parent,
         "html",
         question.text,
@@ -276,7 +279,6 @@ def _display(parent: ET.Element, question: Question, build: SurveyBuild) -> Cove
         where="survey",
         cond=_condition(question, build),
     )
-    _notes(node, question)
     return _item(question, build, "html", "programmed", [], [])
 
 
@@ -315,14 +317,14 @@ def _unsupported(parent: ET.Element, question: Question, build: SurveyBuild) -> 
     warning = (
         f"{question.id} is marked unsupported and was exported as a note, not a live question."
     )
-    node = add_element(
+    _notes(parent, question)
+    add_element(
         parent,
         "html",
         question.text,
         label=build.labels[question.id],
         where="survey",
     )
-    _notes(node, question)
-    add_element(node, "note", warning)
+    parent.append(ET.Comment(f" {_comment_body(warning)} "))
     _warn(build, warning)
     return _item(question, build, "html", "partial", [warning], [])

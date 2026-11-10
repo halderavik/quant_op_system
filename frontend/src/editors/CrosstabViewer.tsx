@@ -1,22 +1,47 @@
-import { downloadUrl } from "../api";
+import { crosstabTable, downloadUrl } from "../api";
 import { ProvenancePanel } from "./ProvenancePanel";
 import { bookTables, exceptionLines, filterTables, type CrosstabTable } from "./model";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export function CrosstabViewer({
+  artifactId,
   content,
   version,
 }: {
+  artifactId?: string;
   content: Record<string, unknown>;
   version?: number;
 }) {
   const tables = bookTables(content);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(tables[0]?.table_id ?? tables[0]?.title ?? "");
+  const [loaded, setLoaded] = useState<CrosstabTable | null>(null);
+  const [loadError, setLoadError] = useState("");
   const visible = filterTables(tables, query);
+  const listed = visible.slice(0, 40);
   const current = visible.find((table) => (table.table_id ?? table.title) === selected) ?? visible[0];
   const fileId = content.export_file_id as string | undefined;
   const exceptions = exceptionLines(content);
+  const oversized = content.oversized === true;
+  const tableId = current?.table_id;
+  const hasRows = Boolean(current?.rows);
+  useEffect(() => {
+    setLoaded(null);
+    if (hasRows || !artifactId || !tableId || oversized) return;
+    let cancel = false;
+    setLoadError("");
+    crosstabTable(artifactId, tableId)
+      .then((table) => {
+        if (!cancel) setLoaded(table as CrosstabTable);
+      })
+      .catch((reason: Error) => {
+        if (!cancel) setLoadError(reason.message);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [artifactId, hasRows, oversized, tableId]);
+  const shown = current?.rows ? current : loaded;
   return (
     <div className="space-y-3">
       <label className="block text-sm" htmlFor="table-search">Search tables</label>
@@ -27,7 +52,7 @@ export function CrosstabViewer({
         onChange={(event) => setQuery(event.target.value)}
       />
       <ul className="flex flex-wrap gap-2">
-        {visible.map((table) => {
+        {listed.map((table) => {
           const id = table.table_id ?? table.title ?? "table";
           return (
             <li key={id}>
@@ -42,8 +67,15 @@ export function CrosstabViewer({
           );
         })}
       </ul>
-      {visible.length === 0 && <p className="text-sm text-stone-500">No table matches that search.</p>}
-      {current && <TableGrid table={current} />}
+      {visible.length > listed.length && (
+        <p className="text-sm text-stone-500">Showing {listed.length} of {visible.length}. Search to narrow the list.</p>
+      )}
+      {oversized && (
+        <p className="text-sm text-amber-900">This saved book is too large to open. Generate the cross-tabs again to build the workbook.</p>
+      )}
+      {visible.length === 0 && !oversized && <p className="text-sm text-stone-500">No table matches that search.</p>}
+      {loadError && <p className="text-sm text-red-700">{loadError}</p>}
+      {shown && <TableGrid table={shown} />}
       {exceptions.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold">Exceptions</h3>
@@ -72,7 +104,10 @@ function TableGrid({ table }: { table: CrosstabTable }) {
             <tr>
               <th className="py-2 text-left">Row</th>
               {(table.columns ?? []).map((column) => (
-                <th key={column.id} className="px-2 text-right">{column.label}</th>
+                <th key={column.id} className="px-2 text-right">
+                  {column.label}
+                  {column.letter ? ` [${column.letter}]` : ""}
+                </th>
               ))}
             </tr>
           </thead>

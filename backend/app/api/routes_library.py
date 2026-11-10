@@ -27,6 +27,7 @@ from app.services.patch import apply_semantic_patch
 from app.services.revisions import prepare_revision
 from app.services.storage import Storage
 from app.services.stored_files import _write_export
+from app.services.tabbook_store import revision_for_list
 from app.util import new_id, sha256_bytes
 
 router = APIRouter()
@@ -46,7 +47,7 @@ def list_artifacts(project_id: str, db: Session = Depends(get_db)) -> list[dict]
     repo = ArtifactRepository(db)
     payload = []
     for artifact in repo.list_project(project_id):
-        latest = repo.latest(artifact.id)
+        latest = revision_for_list(db, artifact.id)
         payload.append(_artifact(artifact, latest))
     return payload
 
@@ -381,7 +382,9 @@ def program_decipher_route(
     """
     from app.services.decipher_program import program_decipher_survey
 
-    return program_decipher_survey(db, request.app.state.storage, project_id)
+    return program_decipher_survey(
+        db, request.app.state.storage, project_id, request.app.state.settings
+    )
 
 
 @router.post("/projects/{project_id}/questionnaires/decipher/preview-source")

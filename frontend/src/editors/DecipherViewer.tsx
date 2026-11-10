@@ -17,9 +17,26 @@ export function DecipherViewer({
   const xml = typeof content.xml === "string" ? content.xml : "";
   const warnings = stringList(content.warnings);
   const items = Array.isArray(content.items) ? (content.items as CoverageItem[]) : [];
+  const launch = typeof content.launch === "string" ? content.launch : "not_configured";
+  const surveyUrl = typeof content.survey_url === "string" ? content.survey_url : "";
+  const surveyPath = typeof content.survey_path === "string" ? content.survey_path : "";
+  const launchMessage = typeof content.launch_message === "string" ? content.launch_message : "";
   return (
     <div className="space-y-4 text-sm">
-      <p>This XML is for import into Decipher. Direct launch is not connected.</p>
+      {launch === "uploaded" && surveyUrl ? (
+        <p>
+          Uploaded to Decipher at {surveyPath}.{" "}
+          <a className="underline" href={surveyUrl} rel="noreferrer">
+            Open survey
+          </a>
+        </p>
+      ) : launch === "failed" ? (
+        <p>
+          {launchMessage || "Decipher did not accept this survey. Download the XML and import it."}
+        </p>
+      ) : (
+        <p>This XML is for import into Decipher. Direct launch is not connected.</p>
+      )}
       <div className="flex flex-wrap gap-3">
         {fileId ? (
           <a className="inline-block underline" href={downloadUrl(fileId)}>Download XML</a>

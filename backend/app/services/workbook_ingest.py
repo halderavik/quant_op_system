@@ -5,13 +5,11 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.engines.external_spec import preview_external
-from app.engines.invariants import summarize, validate_export
-from app.engines.tabbook_excel import export_tabbook
 from app.engines.tabspec_excel import import_tabspec
-from app.repositories.records import ArtifactRepository, FileRepository
-from app.services.execute import _optional_dataset, load_frame, run_spec_book
+from app.repositories.records import ArtifactRepository, DatasetRepository, ProjectRepository
+from app.services.execute import load_frame, run_spec_book
 from app.services.storage import Storage
-from app.services.stored_files import _write_export
+from app.services.tabbook_store import publish_crosstab_book
 
 
 def ingest_workbook(db: Session, storage: Storage, project_id: str, data: bytes) -> dict[str, Any]:
@@ -52,7 +50,7 @@ def ingest_workbook(db: Session, storage: Storage, project_id: str, data: bytes)
         created_by="user",
         validation_status="passed",
     )
-    dataset = _optional_dataset(db, project_id)
+    dataset = _active_dataset(db, project_id)
     if dataset is None:
         return {
             "executed": False,
@@ -61,29 +59,12 @@ def ingest_workbook(db: Session, storage: Storage, project_id: str, data: bytes)
         }
     frame = load_frame(storage, dataset)
     book = run_spec_book(frame, dataset.variables, spec, dataset.id)
-    payload = export_tabbook(book)
-    file_id = _write_export(
+    _revision, file_id, _gate = publish_crosstab_book(
         db,
         storage,
         project_id,
-        "tab-book.xlsx",
-        payload,
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-    stored = FileRepository(db).get(file_id)
-    gate = summarize([validate_export(storage.resolve(project_id, stored.storage_relpath))])
-    ArtifactRepository(db).create(
-        project_id=project_id,
-        artifact_type="crosstab",
+        book,
         name="Imported tab book",
-        content={
-            "tables": [table.model_dump(mode="json") for table in book.tables],
-            "exceptions": book.exceptions,
-            "export_file_id": file_id,
-            "table": book.tables[0].model_dump(mode="json") if book.tables else None,
-        },
-        content_schema="crosstab/1",
-        created_by="crosstab",
         derived_from=[
             {
                 "type": "tabspec",
@@ -91,7 +72,6 @@ def ingest_workbook(db: Session, storage: Storage, project_id: str, data: bytes)
                 "version": spec_revision.version,
             }
         ],
-        validation_status=gate.status,
     )
     skipped = len(book.exceptions)
     return {
@@ -100,3 +80,19 @@ def ingest_workbook(db: Session, storage: Storage, project_id: str, data: bytes)
         "export_file_id": file_id,
         "message": f"Ran the canonical spec. {skipped} tables were recorded as exceptions.",
     }
+
+
+def _active_dataset(db: Session, project_id: str) -> Any:
+    """Return the active dataset when one is selected.
+
+    Args:
+        db: Session.
+        project_id: Project id.
+
+    Returns:
+        Dataset or None.
+    """
+    project = ProjectRepository(db).get(project_id)
+    if not project.active_dataset_id:
+        return None
+    return DatasetRepository(db).get(project.active_dataset_id)

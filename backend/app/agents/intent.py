@@ -3,9 +3,23 @@
 import re
 from typing import Any
 
+from app.agents.intent_roles import fill_roles
 from app.agents.questionnaire_route import is_project_note, is_question_edit
+from app.agents.spec_run_intent import mentions_crosstab, tab_spec_intent
 from app.schemas.project import TaskContract
 
+# Reason: "satisfaction by gender" is a crosstab, but the same shape with a named
+# procedure is an analysis the registry may not implement.
+_ADHOC_ANALYSIS = re.compile(
+    r"mann.{0,3}whitney|kruskal|wilcoxon|friedman|kolmogorov|shapiro|"
+    r"non-?parametric|\bturf\b|van westendorp|price sensitivity|"
+    r"penalty analysis|gap analysis|mixed model|multilevel|"
+    r"\bsurvival\b|\bhazard\b|proportion test|\bz[- ]test\b|"
+    r"compare (?:the )?means|mean difference|"
+    r"(?:build|create) an index|composite (?:score|index)|"
+    r"run an analysis|statistical analysis|significance test",
+    re.I,
+)
 _METHODS = [
     ("binary_logistic_regression", r"logistic"),
     ("ordinal_regression", r"ordinal"),
@@ -16,7 +30,7 @@ _METHODS = [
     ("t_test", r"t-test|ttest"),
     ("correlation", r"correlation"),
     ("correspondence", r"correspondence"),
-    ("clustering", r"cluster|segmentation"),
+    ("clustering", r"cluster|segmentation|\bpam\b|gower|medoid|hierarchical|\bdbscan\b"),
     ("reliability", r"cronbach|reliability"),
     ("discriminant", r"discriminant"),
     ("pca", r"\bpca\b|principal component"),
@@ -73,6 +87,10 @@ def build_contract(
     has_dataset: bool,
     has_questionnaire: bool = False,
     continuing: bool = False,
+    has_tabspec: bool = False,
+    offered_tabspec: bool = False,
+    analysis_followup: bool = False,
+    prior_analysis_request: str = "",
 ) -> TaskContract:
     """Turn a user message into a task contract.
 
@@ -85,10 +103,16 @@ def build_contract(
         has_dataset: Whether a dataset is loaded.
         has_questionnaire: Whether the project already has a questionnaire.
         continuing: Whether the previous assistant turn published a questionnaire.
+        has_tabspec: Whether the project already has a saved tab spec.
+        offered_tabspec: Whether the previous reply asked the user to build a spec.
+        analysis_followup: Whether the previous analysis turn asked a question.
+        prior_analysis_request: The analysis request that question belongs to.
 
     Returns:
         Task contract. Missing roles are listed and not invented.
     """
+    if analysis_followup and prior_analysis_request.strip() and not _leaves_analysis(text):
+        text = prior_analysis_request.strip() + "\n\nFollow-up instruction: " + text.strip()
     lowered = text.lower()
     fields: dict[str, Any] = {}
     missing: list[str] = []
@@ -197,22 +221,43 @@ def build_contract(
             missing,
             ["coding"],
         )
-    if any(token in lowered for token in ("tab spec", "tabspec", "tab plan", "banner book")):
+    spec_intent = tab_spec_intent(
+        text,
+        has_tabspec=has_tabspec,
+        names_row_and_banner=_BY.search(text) is not None,
+        offered_tabspec=offered_tabspec,
+    )
+    if spec_intent:
+        running_book = spec_intent == "run_saved_tabspec"
         return _contract(
             task_id,
             project_id,
             conversation_id,
             text,
-            "build_tabspec",
-            "tabspec",
+            spec_intent,
+            "crosstab" if running_book else "tabspec",
             fields,
             missing,
-            ["tabspec", "xlsx"],
+            ["crosstab", "xlsx"] if running_book else ["tabspec", "xlsx"],
         )
     method = _method(lowered)
     if method:
         fields["method"] = method
-        _fill_roles(text, fields, missing, method)
+        fill_roles(text, fields, missing, method)
+        if not has_dataset:
+            missing.append("dataset")
+        return _contract(
+            task_id,
+            project_id,
+            conversation_id,
+            text,
+            "run_analysis",
+            "analysis",
+            fields,
+            missing,
+            ["analysis", "report"],
+        )
+    if _ADHOC_ANALYSIS.search(text):
         if not has_dataset:
             missing.append("dataset")
         return _contract(
@@ -227,7 +272,7 @@ def build_contract(
             ["analysis", "report"],
         )
     match = _BY.search(text)
-    if match or "crosstab" in lowered or "cross-tab" in lowered:
+    if match or mentions_crosstab(text):
         if match:
             fields["row_variable"] = match.group("row")
             fields["banner_variable"] = match.group("banner")
@@ -284,6 +329,25 @@ def build_contract(
     )
 
 
+def _leaves_analysis(text: str) -> bool:
+    """Return whether a follow-up starts a different specialist task.
+
+    Args:
+        text: The new user message, before it is joined to the prior analysis.
+
+    Returns:
+        True for a questionnaire, table, coding, or Decipher request.
+    """
+    lowered = text.lower()
+    if _DECIPHER_REQUEST.search(lowered) or _questionnaire_intent(lowered):
+        return True
+    if any(
+        token in lowered for token in ("codeframe", "open-end", "open end", "tab spec", "tabspec")
+    ):
+        return True
+    return mentions_crosstab(lowered) or _BY.search(text) is not None
+
+
 def _questionnaire_intent(text: str) -> str | None:
     """Return a questionnaire intent when the message is a survey-design request.
 
@@ -332,87 +396,6 @@ def _method(text: str) -> str | None:
         if re.search(pattern, text):
             return name
     return None
-
-
-def _fill_roles(text: str, fields: dict[str, Any], missing: list[str], method: str) -> None:
-    """Pull variable roles out of phrases like 'of purchase on trust and age'.
-
-    Args:
-        text: User text.
-        fields: Contract fields to update.
-        missing: Missing-role accumulator.
-        method: Registered method name.
-    """
-    of_on = re.search(r"\bof\s+([A-Za-z_][A-Za-z0-9_]*)\s+on\s+([A-Za-z0-9_,\s]+)", text, re.I)
-    if of_on:
-        fields["dependent"] = of_on.group(1)
-        fields["predictors"] = _names(of_on.group(2))
-    dependent = re.search(r"\bdependent\s+([A-Za-z_][A-Za-z0-9_]*)", text, re.I)
-    if dependent:
-        fields["dependent"] = dependent.group(1)
-    predictors = re.search(r"\bpredictors?\s+([A-Za-z0-9_,\s]+)", text, re.I)
-    if predictors:
-        fields["predictors"] = _names(predictors.group(1))
-    grouped = re.search(r"\bby\s+([A-Za-z_][A-Za-z0-9_]*)", text, re.I)
-    if grouped and method in {"t_test", "anova"}:
-        fields["group"] = grouped.group(1)
-    pair = re.search(
-        r"\bbetween\s+([A-Za-z_][A-Za-z0-9_]*)\s+and\s+([A-Za-z_][A-Za-z0-9_]*)",
-        text,
-        re.I,
-    )
-    if pair:
-        fields["var_a"] = pair.group(1)
-        fields["var_b"] = pair.group(2)
-    variables = re.search(r"\bvariables?\s+([A-Za-z0-9_,\s]+)", text, re.I)
-    if variables:
-        fields["variables"] = _names(variables.group(1))
-    needs_dependent = method in {
-        "linear_regression",
-        "binary_logistic_regression",
-        "ordinal_regression",
-        "key_driver",
-        "t_test",
-        "anova",
-        "discriminant",
-    }
-    if needs_dependent and "dependent" not in fields:
-        missing.append("dependent")
-    if method in {
-        "linear_regression",
-        "binary_logistic_regression",
-        "ordinal_regression",
-        "key_driver",
-        "discriminant",
-    }:
-        if not fields.get("predictors"):
-            missing.append("predictors")
-    if method in {"t_test", "anova"} and "group" not in fields:
-        missing.append("group")
-    if method in {"chi_square", "correspondence"} and "var_a" not in fields:
-        missing.extend(["var_a", "var_b"])
-    if method in {
-        "correlation",
-        "pca",
-        "efa",
-        "clustering",
-        "reliability",
-        "descriptive",
-    } and not fields.get("variables"):
-        missing.append("variables")
-
-
-def _names(text: str) -> list[str]:
-    """Split a list of variable names.
-
-    Args:
-        text: Comma or 'and' separated names.
-
-    Returns:
-        Names.
-    """
-    parts = re.split(r",|\band\b", text)
-    return [part.strip() for part in parts if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", part.strip())]
 
 
 def _check_names(fields: dict[str, Any], variable_names: list[str], missing: list[str]) -> None:

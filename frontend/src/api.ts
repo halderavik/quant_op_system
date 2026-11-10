@@ -135,6 +135,10 @@ export function downloadUrl(fileId: string): string {
   return `/api/files/${fileId}/download`;
 }
 
+export async function crosstabTable(artifactId: string, tableId: string): Promise<Record<string, unknown>> {
+  return parse(await fetch(`/api/artifacts/${artifactId}/tables/${encodeURIComponent(tableId)}`));
+}
+
 export async function exportQuestionnaire(
   projectId: string,
   kind: "docx" | "pdf",

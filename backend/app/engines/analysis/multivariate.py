@@ -8,7 +8,7 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 
-from app.engines.analysis.common import prepare, script_for, versions
+from app.engines.analysis.common import prepare, prepare_clustering, script_for, versions
 from app.engines.expression import mask_frame
 from app.errors import AppError
 from app.schemas.analysis import AnalysisPlan, AnalysisResult
@@ -82,7 +82,7 @@ def run_clustering(frame: pd.DataFrame, plan: AnalysisPlan) -> AnalysisResult:
     Returns:
         Labels, sizes, and silhouette. Sizes sum to the valid N.
     """
-    data, flow = prepare(frame, plan, plan.variables)
+    data, flow, notes = prepare_clustering(frame, plan)
     k = int(plan.options.get("k") or 2)
     if k < 2 or k >= len(data):
         raise AppError(
@@ -95,7 +95,7 @@ def run_clustering(frame: pd.DataFrame, plan: AnalysisPlan) -> AnalysisResult:
     profiles = {}
     for cluster in range(k):
         profiles[str(cluster)] = {
-            name: float(data.iloc[labels == cluster][name].mean()) for name in plan.variables
+            name: float(data.iloc[labels == cluster][name].mean()) for name in data.columns
         }
     score = float(silhouette_score(scaled, labels)) if len(set(labels)) > 1 else None
     return _done(
@@ -105,7 +105,8 @@ def run_clustering(frame: pd.DataFrame, plan: AnalysisPlan) -> AnalysisResult:
         metrics={"silhouette": score, "inertia": float(model.inertia_)},
         descriptive={"labels": [int(label) for label in labels]},
         warnings=[
-            "Cluster labels depend on the seed and on standardizing features before K-means."
+            "Cluster labels depend on the seed and on standardizing features before K-means.",
+            *notes,
         ],
     )
 

@@ -26,6 +26,8 @@ def _contract(
     has_dataset: bool = False,
     has_questionnaire: bool = False,
     continuing: bool = False,
+    has_tabspec: bool = False,
+    offered_tabspec: bool = False,
 ) -> TaskContract:
     """Build a contract with no dataset variables.
 
@@ -34,6 +36,8 @@ def _contract(
         has_dataset: Whether a dataset is loaded.
         has_questionnaire: Whether a questionnaire is already saved.
         continuing: Whether the previous turn published a questionnaire.
+        has_tabspec: Whether a tab spec is already saved.
+        offered_tabspec: Whether the previous reply asked for a tab spec.
 
     Returns:
         Task contract.
@@ -47,6 +51,8 @@ def _contract(
         has_dataset=has_dataset,
         has_questionnaire=has_questionnaire,
         continuing=continuing,
+        has_tabspec=has_tabspec,
+        offered_tabspec=offered_tabspec,
     )
 
 
@@ -98,6 +104,30 @@ def test_follow_up_does_not_steal_a_table_or_a_note() -> None:
     assert removed.intent == "general_task"
 
 
+def test_analysis_follow_up_is_not_a_questionnaire_edit() -> None:
+    """Answering an analysis question resumes segmentation instead of editing a survey."""
+    reply = (
+        "yes remove those 9 empty Q4 features and five empty profiling variables. "
+        "Then run the task"
+    )
+    alone = _contract(reply, has_dataset=True)
+    resumed = build_contract(
+        task_id="task-1",
+        project_id="project-1",
+        conversation_id="conversation-1",
+        text=reply,
+        variable_names=["Q4r1", "Q15r1"],
+        has_dataset=True,
+        analysis_followup=True,
+        prior_analysis_request="I want to run segmentation with Q15r1, Q4r1, Q4r2",
+    )
+    assert alone.intent != "revise_questionnaire"
+    assert resumed.intent == "run_analysis"
+    assert "Q15r1" in resumed.user_request
+    assert "Follow-up instruction:" in resumed.user_request
+    assert resumed.missing_required == []
+
+
 def test_decipher_request_does_not_revise_the_questionnaire() -> None:
     """Survey XML and Decipher programming stay off the questionnaire editor."""
     program = _contract(
@@ -115,6 +145,75 @@ def test_decipher_request_does_not_revise_the_questionnaire() -> None:
     assert edit.intent == "revise_questionnaire"
 
 
+def test_saved_spec_runs_when_the_user_asks_for_its_cross_tabs() -> None:
+    """A request that points at the spec runs that spec and does not ask for one row."""
+    named = "generate cross-tabs based on the specs"
+    ready = _contract(named, has_dataset=True, has_tabspec=True)
+    from_plan = _contract("run the crosstabs from the tab spec", has_dataset=True, has_tabspec=True)
+    missing_spec = _contract(named, has_dataset=True)
+    assert ready.intent == "run_saved_tabspec"
+    assert ready.missing_required == []
+    assert from_plan.intent == "run_saved_tabspec"
+    assert from_plan.intent != "build_tabspec"
+    assert "row_variable" not in missing_spec.missing_required
+    assert missing_spec.intent == "run_saved_tabspec"
+
+
+def test_named_banner_and_new_spec_stay_on_their_own_paths() -> None:
+    """One named table still runs alone, and authoring a spec does not execute one."""
+    table = _contract("Q5 by gender", has_dataset=True, has_tabspec=True)
+    author = _contract("build a tab spec", has_tabspec=True)
+    drafted = _contract("generate a tab spec", has_tabspec=True)
+    bare = _contract("run a crosstab", has_dataset=True)
+    spaced = _contract("generate the cross tabs", has_dataset=True, has_tabspec=True)
+    assert table.intent == "run_crosstab"
+    assert table.provided_fields["row_variable"] == "Q5"
+    assert table.provided_fields["banner_variable"] == "gender"
+    assert author.intent == "build_tabspec"
+    assert drafted.intent == "build_tabspec"
+    assert bare.missing_required == ["row_variable", "banner_variable"]
+    assert spaced.intent == "run_saved_tabspec"
+    assert spaced.missing_required == []
+
+
+def test_hyphenated_build_requests_author_a_tab_spec() -> None:
+    """Uploaded-data wording that names tab-specs starts the spec, not a note."""
+    hyphen = _contract("can you please build tab-specs for this data", has_dataset=True)
+    singular = _contract("build a tab-spec from this file", has_dataset=True)
+    assert hyphen.intent == "build_tabspec"
+    assert hyphen.specialist == "tabspec"
+    assert hyphen.missing_required == []
+    assert singular.intent == "build_tabspec"
+
+
+def test_cross_tab_spec_is_authored_even_when_a_spec_exists() -> None:
+    """Building the cross-tab spec writes a plan and does not try to run tables."""
+    fresh = _contract("can you build the cross-tab spec for this uploaded data", has_dataset=True)
+    again = _contract(
+        "can you build the cross-tab spec for this uploaded data",
+        has_dataset=True,
+        has_tabspec=True,
+    )
+    tables = _contract(
+        "generate cross-tabs based on the specs",
+        has_dataset=True,
+        has_tabspec=True,
+    )
+    assert fresh.intent == "build_tabspec"
+    assert again.intent == "build_tabspec"
+    assert tables.intent == "run_saved_tabspec"
+
+
+def test_build_it_follows_the_missing_spec_reply_only() -> None:
+    """'can you build it' authors a spec after that offer, and stays a note otherwise."""
+    follow = _contract("can you build it", offered_tabspec=True)
+    bare = _contract("can you build it")
+    named = _contract("Q5 by gender", has_dataset=True, offered_tabspec=True)
+    assert follow.intent == "build_tabspec"
+    assert bare.intent == "general_task"
+    assert named.intent == "run_crosstab"
+
+
 def test_analysis_and_coding_requests_still_need_data() -> None:
     """A segmentation run or open-end coding job is not treated as a study brief."""
     analysis = _contract("Run a segmentation with variables trust and age")
@@ -123,3 +222,10 @@ def test_analysis_and_coding_requests_still_need_data() -> None:
     assert "dataset" in analysis.missing_required
     assert coding.intent == "code_open_ends"
     assert "dataset" in coding.missing_required
+
+
+def test_pam_gower_is_an_analysis_request() -> None:
+    """Naming PAM with Gower routes to analysis when a dataset is loaded."""
+    contract = _contract("Run PAM with Gower distance on the feature battery", has_dataset=True)
+    assert contract.intent == "run_analysis"
+    assert contract.missing_required == []

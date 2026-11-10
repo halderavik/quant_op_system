@@ -1,4 +1,4 @@
-"""Decipher programming, PDF export, and the reserved launch hook."""
+"""Decipher programming, PDF export, and the unconfigured launch hook."""
 
 import xml.etree.ElementTree as ET
 from io import BytesIO
@@ -86,13 +86,17 @@ def test_compiler_programs_structured_questions() -> None:
     result = compile_decipher(_programmed())
     assert result.validation_status == "passed", result.issues
     root = ET.fromstring(result.xml)
+    assert root.get("compat") == "153"
+    assert root.get("delphi") == "1"
+    assert "<note>" not in result.xml
     screener = root.find("./block")
     assert screener is not None
     radio = screener.find("./radio[@label='S1']")
     assert radio is not None
     assert radio.find("./title").text == "Are you 18 or older?"
     assert radio.find("./comment").text == "Please select one."
-    assert radio.find("./note").text == "Ask all."
+    assert radio.find("./note") is None
+    assert "<!-- S1: Ask all. -->" in result.xml
     assert any(term.get("cond") == "S1.r1" for term in root.iter("term"))
     brands = screener.find("./checkbox[@label='Q1']")
     assert brands is not None
@@ -308,13 +312,16 @@ def test_chat_without_a_questionnaire_asks_first(client: TestClient) -> None:
 
 
 def test_launcher_is_not_configured(tmp_path) -> None:
-    """The reserved launch hook does not call Forsta."""
+    """A blank API key does not call Forsta."""
     settings = Settings(
         openai_api_key="",
         database_url=f"sqlite:///{(tmp_path / 'studio.db').as_posix()}",
         storage_root=tmp_path / "storage",
         session_db_path=tmp_path / "sessions.db",
         cors_origins="http://localhost:5173",
+        decipher_api_base="",
+        decipher_api_key="",
+        decipher_company="",
     )
     launcher = launcher_from_settings(settings)
     assert isinstance(launcher, NotConfiguredLauncher)

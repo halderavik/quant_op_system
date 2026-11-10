@@ -35,13 +35,13 @@ Only orchestrator translates this into user-facing chat. Subagents return data, 
 
 ## 3a. Decipher programming specialist
 
-**Mission:** Program the current questionnaire as Forsta Decipher survey XML that can be imported and tested. Read the structured questions, options, routing, and notes. Do not invent questions, brands, scale points, ranges, or nested loop items that are not in the questionnaire. Programmer notes that are only free text are copied into hidden `<note>` elements and listed in the coverage report. They are not executed as extra logic.
+**Mission:** Program the current questionnaire as Forsta Decipher survey XML that can be imported and tested. Read the structured questions, options, routing, and notes. Do not invent questions, brands, scale points, ranges, or nested loop items that are not in the questionnaire. Programmer notes that are only free text are copied into XML comments before the question, because Decipher rejects a `note` element inside `radio`, `checkbox`, and `textarea`. The survey sets `compat="153"` and `delphi="1"`. Notes are listed in the coverage report and are not executed as extra logic.
 
-**Tools:** `get_questionnaire`, `compile_decipher_survey`, `validate_decipher_xml`, `export_decipher_xml`. No model call writes XML. A future `launch_decipher_survey` tool is not connected and must not be described as completed.
+**Tools:** `get_questionnaire`, `compile_decipher_survey`, `validate_decipher_xml`, `export_decipher_xml`. No model call writes XML. When `DECIPHER_API_KEY` is set, the programmer uploads that XML to Selfserve with `x-apikey`. A blank key does not call Decipher. When Decipher rejects the file, the programmer applies the structure changes named in the error and uploads again, up to three corrections. It can set a required survey attribute, move a tag out of a parent that cannot contain it, and remove an attribute Decipher names on a tag. Question text, option codes, and routing stay as written. An error that does not name one of those changes is reported.
 
 **Required outputs:** `decipher_survey` artifact bound to the questionnaire id and version, coverage report, and a downloadable `.xml` file. Partial question types (loop body, rank-sort style, date calendar, empty grid) are warnings. Duplicate ids, missing question labels, and routes to unknown questions fail validation and are not published.
 
-**Self-check:** every question id is present, labels are unique, conditions and goto targets exist, option codes are recorded against row labels, terminate options become `<term>`, and the summary states that direct launch is not connected.
+**Self-check:** every question id is present, labels are unique, conditions and goto targets exist, option codes are recorded against row labels, terminate options become `<term>`. The summary names the Decipher path after an upload, includes a correction Decipher required, reports Decipher's error when the upload still fails, and states that direct launch is not connected when no API key is set.
 
 ## 4. Tab-spec specialist
 
@@ -65,13 +65,13 @@ Only orchestrator translates this into user-facing chat. Subagents return data, 
 
 ## 6. Statistical analysis specialist
 
-**Mission:** Run real quantitative methods other than conjoint/MaxDiff. Identify method, enforce required user-supplied variables and treatment, produce AnalysisPlan, use registered trusted statistical implementation or sandbox as appropriate, examine fit/diagnostics and write grounded professional report. If the method is unsupported or required roles missing, do not create fictitious outputs.
+**Mission:** Run real quantitative methods other than conjoint/MaxDiff. Read the dataset profile and the request, then write an AnalysisWorkflow before any calculation. The plan may be one step or several: imputation, a top or bottom box, the procedure the data needs, a segment profile cross-tab, and a summary. Built-in procedures include the registered statistics plus PAM with Gower distance, hierarchical clustering, DBSCAN, a Gaussian mixture, and spectral clustering. A procedure that is not built in is written as a Python script, checked, and executed in the sandbox. The script reads the job files and writes `result.json`. It may import numpy, pandas, scipy, scikit-learn, statsmodels, math, statistics, json, and pathlib. If the outcome, group, codes, or cutoff cannot be read from the request and the profile, ask one question and do not run a script. A failed script may be rewritten once from its stderr. A supplied `compute(data, seed)` function on the plan still runs. Examine fit and diagnostics and write a report whose numbers come from the computed result. If the procedure cannot be computed, a required choice cannot be made from the profile, or the script fails, do not create fictitious outputs.
 
-**Tools:** `get_dataset_metadata`, `validate_analysis_plan`, `run_registered_method`, `run_sandbox_script`, `get_method_results`, `render_analysis_report`, `export_analysis`.
+**Tools:** `get_dataset_metadata`, `plan_analysis`, `validate_analysis_plan`, `run_sandbox_script`, `get_method_results`, `render_analysis_report`, `export_analysis`.
 
-**Required outputs:** AnalysisPlan, computed result object, reproducible code, diagnostics, report with numeric provenance.
+**Required outputs:** Analysis plan, the script that ran, computed result, diagnostics, profile tables when segments were requested, and a report with numeric provenance. The user can download the plan, the script, and the workbook.
 
-**Self-check:** right variable roles and level of measurement, missing policy, weight policy, filtering, model assumptions, appropriate testing and uncertainty, no causal overstatement. For segmentation include profile, cluster sizes, tuning and stability notes. When reporting relative importance, explicitly specify whether normalized to 100% and method of derivation.
+**Self-check:** right variable roles and level of measurement, missing policy, weight policy, filtering, model assumptions, appropriate testing and uncertainty, no causal overstatement. Weights and ids are not imputed. A top box uses the favorable end of an ordered scale. Profile variables were not clustering features. For segmentation include profile, cluster sizes, the chosen k, and the seed. When reporting relative importance, explicitly specify whether normalized to 100% and method of derivation.
 
 ## 7. Open-end coding specialist
 
@@ -94,6 +94,8 @@ Only orchestrator translates this into user-facing chat. Subagents return data, 
 ## 9. Validator agent (independent gate)
 
 **Mission:** Compare *actual outputs* to *original user request* and TaskContract. Always run deterministic checks first; semantically review questionnaire/study logic and report interpretation second. Reject false calculations, missing deliverables, incompatible variable mappings, broken routing, invented data, invalid coding IDs, or missing export files. Specify exact failing checks and repair actions. Do not fix numbers by manually editing result JSON; require recomputation. Store the validator report with immutable input/output hashes.
+
+**Tab spec:** The validator authors the executable tab spec. It may name only variables in the dataset profile, choose banner codes and the multi-response punch, and put empty, text, and admin columns on the exclusion list. It does not invent counts. A spec is stored only after a dry-run shows each runnable table has a non-zero base and at least one non-zero category or a mean. Corrections are capped at two. The validator does not edit computed cells.
 
 **Tools:** `inspect_task_contract`, `run_schema_checks`, `run_numerical_invariants`, `verify_file_exports`, `compare_request_and_outputs`, `validate_report_facts`, `record_validation`.
 

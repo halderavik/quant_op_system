@@ -7,6 +7,7 @@ import pytest
 from app.engines.coding_agg import merge_checkpoint
 from app.schemas.coding import Codeframe, CodeNode, CodingAssignment, NetNode
 from app.schemas.questionnaire import Module, Objective, Option, Question, Questionnaire
+from app.schemas.tabspec import PlanBanner, PlanExclusion, PlanTable, TabulationPlan
 from app.services.documents import aggregate_saved_coding
 from tests.conftest import create_project
 
@@ -65,6 +66,28 @@ def test_one_project_covers_the_core_journeys(client, monkeypatch: pytest.Monkey
     small_id = _upload(client, project["id"], ROOT / "survey_small.sav")
     _ask(client, project, "trust by gender weighted using weight")
     _ask(client, project, "chart the latest table")
+
+    async def _plan(*_args, **kwargs):
+        assert kwargs["role"] == "validator"
+        return TabulationPlan(
+            banners=[PlanBanner(variable_name="gender", plan="A", codes=[1, 2])],
+            tables=[
+                PlanTable(
+                    title="Trust",
+                    row_variable_names=["trust"],
+                    table_type="categorical",
+                    banner_plans=["A"],
+                    base="All",
+                )
+            ],
+            exclusions=[
+                PlanExclusion(name="comment", reason="Text"),
+                PlanExclusion(name="respondent_id", reason="Admin"),
+                PlanExclusion(name="weight", reason="Weight"),
+            ],
+        )
+
+    monkeypatch.setattr("app.services.tabspec_guard.run_structured", _plan)
     _ask(client, project, "Build a tab spec")
 
     async def _questionnaire(*_args, **_kwargs):
