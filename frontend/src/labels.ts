@@ -14,12 +14,15 @@ export function artifactTitle(type: string, name: string): string {
 const TYPE_LABELS: Record<string, string> = {
   questionnaire: "Questionnaire",
   decipher_survey: "Decipher survey",
+  sample_purchase: "Sample purchase",
   tabspec: "Tab spec",
   crosstab: "Crosstab",
   analysis: "Analysis",
   chart: "Chart",
   codeframe: "Codeframe",
   coding: "Coding",
+  cleaning: "Data cleaning",
+  synthetic_data: "Synthetic data",
   note: "Note",
 };
 
@@ -32,5 +35,6 @@ export function validationLabel(status: string): string {
   if (status === "passed_with_warnings") return "Passed with warnings";
   if (status === "failed") return "Needs attention";
   if (status === "pending") return "Pending";
+  if (status === "needs_review") return "Needs review";
   return status;
 }

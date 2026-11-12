@@ -167,6 +167,51 @@ export async function programDecipher(projectId: string): Promise<{
   return parse(await fetch(`/api/projects/${projectId}/questionnaires/decipher`, { method: "POST" }));
 }
 
+export async function repriceSample(
+  projectId: string,
+  body: Record<string, unknown>,
+): Promise<{ artifact_id: string; summary: string }> {
+  return parse(
+    await fetch(`/api/projects/${projectId}/sample/quote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+export async function launchSample(
+  projectId: string,
+  totalCostCents: number,
+): Promise<{ artifact_id: string; summary: string }> {
+  return parse(
+    await fetch(`/api/projects/${projectId}/sample/launch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: true, total_cost_cents: totalCostCents }),
+    }),
+  );
+}
+
+export async function transitionSample(
+  projectId: string,
+  action: "PAUSE" | "START" | "STOP",
+): Promise<{ artifact_id: string; summary: string }> {
+  return parse(
+    await fetch(`/api/projects/${projectId}/sample/transition`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    }),
+  );
+}
+
+export async function refreshSample(
+  projectId: string,
+): Promise<{ artifact_id: string; summary: string }> {
+  return parse(await fetch(`/api/projects/${projectId}/sample/refresh`, { method: "POST" }));
+}
+
 export type PreviewSource = {
   xml: string;
   title: string;

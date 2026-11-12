@@ -34,6 +34,8 @@ class VariableRole(BaseModel):
 
 
 StepKind = Literal[
+    "filter",
+    "band",
     "impute_missing",
     "top_box",
     "bottom_box",
@@ -43,6 +45,15 @@ StepKind = Literal[
     "profile_crosstab",
     "report",
 ]
+
+
+class Band(BaseModel):
+    """One group of a banded variable: a numeric range or a list of codes."""
+
+    label: str
+    lower: float | None = None
+    upper: float | None = None
+    codes: list[str] = Field(default_factory=list)
 
 
 class AnalysisStep(BaseModel):
@@ -65,6 +76,12 @@ class AnalysisStep(BaseModel):
     codes: list[str] = Field(default_factory=list)
     # Reason: used only when the method name has no built-in procedure.
     procedure: str = ""
+    # Reason: a band step writes this new column; a method step saves segment
+    # labels under this name, or factor and component scores as name1, name2, ...
+    output: str = ""
+    bands: list[Band] = Field(default_factory=list)
+    # Reason: a method step runs once per code of this variable, then compares groups.
+    split_by: str = ""
 
 
 class AnalysisWorkflow(BaseModel):

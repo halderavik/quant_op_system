@@ -121,6 +121,19 @@
 - [x] A10 All delivered downloads exist, are nonempty and can be opened.
 ## Discovered During Work
 
+- [x] T187 Recommend fraud respondents from an uploaded SPSS file, including open ends, and drop only the remove rows when the user asks to apply that recommendation. (2026-11-10)
+- [x] T190 Keep code-like text columns (ZIP, state, region) out of open-end review, label each distinct verbatim once, review up to 5,000 distinct verbatims in parallel batches, and leave only a failed batch's rows in review. (2026-11-10)
+- [x] T191 Review a respondent for weak open ends (placeholder, short, off-topic, low-effort) only when there are two of them or another flag. A single weak open end keeps the row and stays listed. (2026-11-11)
+- [x] T192 Redesign the studio UI: a viewport-height layout where the projects rail, chat and workspace scroll on their own; an Outputs tab that lists every artifact by stage with type, version, run number, validation and stale badges and one-click downloads; a viewer toolbar with the same downloads; semantic color tokens with light, dark and system themes; focus rings, ARIA tabs and a keyboard-resizable splitter; and a phone layout that switches between chat and outputs. Tests: `frontend/src/outputs.test.ts`. (2026-11-12)
+- [x] T193 Program rank questions with the Decipher rank sort style (uses="ranksort.7"), and give a "rank your top N" question N rank positions with an exact-count check, instead of a plain unique choice list with a warning. (2026-11-12)
+- [x] T194 Set minRanks on ranksort questions (Decipher requires it), and when Decipher rejects a question style, re-upload with that style removed so the launch still succeeds. (2026-11-12)
+- [x] T195 Price a weighted Prolific audience (such as 50/50 men and women): leave weightings out of the eligibility count, create the study as QUOTA, and show nested Prolific errors as plain sentences. (2026-11-12)
+- [x] T196 Add a synthetic respondent generator: it walks the programmed Decipher survey (routing, terminates, quotas), drafts persona answer patterns with the model, draws every respondent in Python, checks the result, saves synthetic-data.sav, and loads it as a dataset the analysis agents use. (2026-11-12)
+- [x] T198 Run multi-step analysis plans: treat "Don't know" and similar labeled codes as missing (and declare them missing in synthetic SPSS files), chain up to six methods with factor or component scores and segment labels passed on, run a method per subgroup with a comparison table, filter respondents, band a variable into a new column, and let the planner read multi-method requests instead of asking for one method's roles. (2026-11-12)
+- [x] T197 Link synthetic answers within a respondent: the model names 2-4 traits with persona levels and per-question loadings, each respondent draws trait values that tilt related answers, and personas are matched to the quota cells they fit. (2026-11-12)
+- [x] T189 Read SPSS string variables as text under pandas 3, count item nonresponse only on closed ends at least 80 percent of respondents answered, and keep string ids and captured panel fields out of the open-end checks. (2026-11-10)
+- [x] T188 Price a Prolific audience with sample size and quotas, and publish the programmed Decipher survey only after the user confirms the total. (2026-11-10)
+- [x] T186 Route each chat turn from the project snapshot, and fall back to keyword rules when that call cannot run. (2026-11-10)
 - [x] T181 Upload programmed survey XML to Decipher when `DECIPHER_API_KEY` is set. (2026-11-10)
 - [x] T183 Set `delphi="1"` on compat 153 surveys and keep programmer notes out of radio, checkbox, and textarea. (2026-11-10)
 - [x] T184 Open a programmed survey at `/survey/{path}`, which is the respondent address Decipher serves. (2026-11-10)

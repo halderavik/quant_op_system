@@ -14,24 +14,24 @@ export function ScreenBody({
   if (screen.status === "terminated" || screen.status === "complete") {
     return (
       <div className="mt-3 space-y-2">
-        <h3 className="text-xl font-medium text-stone-900">{screen.title || "End of survey"}</h3>
-        {screen.message && <p className="text-stone-700">{screen.message}</p>}
+        <h3 className="text-xl font-medium text-ink">{screen.title || "End of survey"}</h3>
+        {screen.message && <p className="text-ink-2">{screen.message}</p>}
       </div>
     );
   }
   if (screen.status === "error") {
-    return <p className="mt-3 text-sm text-red-700">{screen.message}</p>;
+    return <p className="mt-3 text-sm text-danger">{screen.message}</p>;
   }
   return (
     <div className="mt-2">
-      <h3 className="text-xl font-medium text-stone-900">{screen.title}</h3>
-      {screen.comment && <p className="mt-2 text-sm text-stone-600">{screen.comment}</p>}
-      {screen.check === "date" && <p className="mt-2 text-sm text-stone-500">YYYY-MM-DD</p>}
+      <h3 className="text-xl font-medium text-ink">{screen.title}</h3>
+      {screen.comment && <p className="mt-2 text-sm text-ink-2">{screen.comment}</p>}
+      {screen.check === "date" && <p className="mt-2 text-sm text-muted">YYYY-MM-DD</p>}
       {screen.check === "total100" && (
-        <p className="mt-2 text-sm text-stone-500">These numbers need to total 100.</p>
+        <p className="mt-2 text-sm text-muted">These numbers need to total 100.</p>
       )}
       {screen.warning && (
-        <p className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+        <p className="mt-3 rounded border border-warn-line bg-warn-soft px-3 py-2 text-sm text-warn">
           {screen.warning}
         </p>
       )}
@@ -76,7 +76,7 @@ function Fields({
     return (
       <textarea
         aria-label={screen.title}
-        className="min-h-28 w-full rounded border border-stone-300 p-3 text-sm"
+        className="min-h-28 w-full rounded border border-line-strong p-3 text-sm"
         value={answer.value}
         onChange={(event) => setAnswer({ ...answer, value: event.target.value })}
       />
@@ -85,7 +85,7 @@ function Fields({
   return (
     <input
       aria-label={screen.title}
-      className="w-full rounded border border-stone-300 px-3 py-2 text-sm"
+      className="w-full rounded border border-line-strong px-3 py-2 text-sm"
       inputMode={screen.element === "number" ? "decimal" : undefined}
       value={answer.value}
       onChange={(event) => setAnswer({ ...answer, value: event.target.value })}
@@ -122,7 +122,7 @@ function Radios({
               {row.open && selected && (
                 <input
                   aria-label={`${row.text} text`}
-                  className="mt-1 w-full rounded border border-stone-300 px-2 py-1"
+                  className="mt-1 w-full rounded border border-line-strong px-2 py-1"
                   value={answer.open_text[row.label] ?? ""}
                   onChange={(event) =>
                     setAnswer({ ...answer, open_text: { ...answer.open_text, [row.label]: event.target.value } })
@@ -163,7 +163,7 @@ function Checks({
               {row.open && selected && (
                 <input
                   aria-label={`${row.text} text`}
-                  className="mt-1 w-full rounded border border-stone-300 px-2 py-1"
+                  className="mt-1 w-full rounded border border-line-strong px-2 py-1"
                   value={answer.open_text[row.label] ?? ""}
                   onChange={(event) =>
                     setAnswer({ ...answer, open_text: { ...answer.open_text, [row.label]: event.target.value } })
@@ -204,7 +204,7 @@ function Grid({
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.label} className="border-t border-stone-200">
+            <tr key={row.label} className="border-t border-line">
               <th className="p-2 text-left font-normal" scope="row">
                 {row.text}
               </th>
@@ -247,7 +247,7 @@ function Ranks({
           <span>{row.text}</span>
           <select
             aria-label={`${row.text} rank`}
-            className="rounded border border-stone-300 bg-white px-2 py-1"
+            className="rounded border border-line-strong bg-surface px-2 py-1"
             value={answer.row_values[row.label] ?? ""}
             onChange={(event) =>
               setAnswer({ ...answer, row_values: { ...answer.row_values, [row.label]: event.target.value } })
@@ -282,7 +282,7 @@ function Numbers({
           <span>{row.text}</span>
           <input
             aria-label={row.text}
-            className="w-24 rounded border border-stone-300 px-2 py-1"
+            className="w-24 rounded border border-line-strong px-2 py-1"
             inputMode="decimal"
             value={answer.row_values[row.label] ?? ""}
             onChange={(event) =>

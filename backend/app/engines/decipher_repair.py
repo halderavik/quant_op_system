@@ -26,6 +26,9 @@ _ATTR_FORBIDDEN = re.compile(
     re.IGNORECASE,
 )
 _NOT_A_TAG = {"this", "element", "tag"}
+_STYLE = re.compile(r"while using style ['\"]?(?:[\w.-]+/)*([A-Za-z_]\w*)/v\d+", re.IGNORECASE)
+# Reason: attributes the studio writes only for a style. They mean nothing once the style is gone.
+_STYLE_ATTRS = {"ranksort": {"minRanks"}}
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,7 @@ def repair_survey_xml(xml: str, errors: list[str]) -> XmlRepair:
     fixes = _require_attributes(root, messages)
     fixes.extend(_lift_tags(root, messages))
     fixes.extend(_drop_attributes(root, messages))
+    fixes.extend(_drop_styles(root, messages))
     unique = _unique(fixes)
     if not unique:
         return XmlRepair(xml=xml, fixes=[], changed=False)
@@ -256,6 +260,37 @@ def _drop_attributes(root: ET.Element, messages: list[str]) -> list[str]:
                 continue
             if _remove_attribute(root, tag, name):
                 fixes.append(f"Removed {name} from {tag}.")
+    return fixes
+
+
+def _drop_styles(root: ET.Element, messages: list[str]) -> list[str]:
+    """Remove a question style Decipher could not apply, keeping the plain question.
+
+    Args:
+        root: Document root.
+        messages: Error texts.
+
+    Returns:
+        Descriptions of styles that were removed.
+    """
+    fixes: list[str] = []
+    for message in messages:
+        for match in _STYLE.finditer(message):
+            style = match.group(1).lower()
+            labels: list[str] = []
+            for element in root.iter():
+                uses = element.get("uses") or ""
+                if uses.split(".", 1)[0].lower() != style:
+                    continue
+                del element.attrib["uses"]
+                for name in _STYLE_ATTRS.get(style, set()):
+                    element.attrib.pop(name, None)
+                labels.append(element.get("label") or _local(element.tag))
+            if labels:
+                fixes.append(
+                    f"Removed the {style} style from {', '.join(labels)}, "
+                    "so those questions use Decipher's plain layout."
+                )
     return fixes
 
 

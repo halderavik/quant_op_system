@@ -9,11 +9,21 @@ from app.engines.analysis.program_code import validate_program
 from app.engines.analysis.registry import SUPPORTED_METHODS
 from app.engines.tabspec_banners import is_weight_name
 from app.errors import AppError
-from app.schemas.analysis import AnalysisStep, AnalysisWorkflow
+from app.schemas.analysis import AnalysisStep, AnalysisWorkflow, Band
 from app.util import new_id
 
 _BLOCKED = {"maxdiff", "max-diff", "conjoint", "cbc"}
 _PREP = re.compile(r"imput|top[- ]?2|top box|bottom box|profil", re.I)
+# Reason: these phrases mean more than one step, so a keyword shortcut would drop part of the request.
+MULTI_STEP = re.compile(
+    r"\bthen\b|\bafterwards?\b|\bseparately\b|\bfor each\b|\bwithin each\b|\bamong\b|"
+    r"\bonly (?:for|among)\b|\bgroup(?:ed)?\s+[\w-]+(?:\s+[\w-]+)?\s+into\b|"
+    r"\bband(?:s|ed|ing)?\b|\brecode|\bcompare\b|\bfactor scores?\b|"
+    r"\bcomponent scores?\b|\bsplit by\b|\bsubgroups?\b",
+    re.I,
+)
+_MAX_METHODS = 6
+_SCORES = {"efa", "pca"}
 # Reason: these methods need a look at scales and missingness before the steps are fixed.
 _JUDGMENT = {"clustering", "pca", "efa"}
 
@@ -33,7 +43,12 @@ def direct_workflow(
         profile and decide the steps.
     """
     method = str(hints.get("method") or "").strip().lower().replace(" ", "_").replace("-", "_")
-    if method in _JUDGMENT or method not in SUPPORTED_METHODS or _PREP.search(request):
+    if (
+        method in _JUDGMENT
+        or method not in SUPPORTED_METHODS
+        or _PREP.search(request)
+        or MULTI_STEP.search(request)
+    ):
         return None
     if not _roles_ready(method, hints):
         return None
@@ -138,7 +153,7 @@ def _custom_method(workflow: AnalysisWorkflow) -> bool:
     methods = [step for step in workflow.steps if step.kind == "method"]
     if len(methods) != 1 or methods[0].procedure.strip():
         return False
-    method = methods[0].method.strip().lower().replace(" ", "_").replace("-", "_")
+    method = canonical_method(methods[0].method)
     if not method or method in _BLOCKED or method in SUPPORTED_METHODS or family(method):
         return False
     return True
@@ -146,6 +161,10 @@ def _custom_method(workflow: AnalysisWorkflow) -> bool:
 
 def ensure_runnable(workflow: AnalysisWorkflow, columns: set[str]) -> None:
     """Reject a plan that cannot be executed, before the sandbox starts.
+
+    Steps run in order, so a step may use a column that an earlier band or
+    method step creates. ``name*`` stands for every column starting with
+    ``name``, such as factor scores saved as F1, F2, F3.
 
     Args:
         workflow: Planner output.
@@ -163,33 +182,30 @@ def ensure_runnable(workflow: AnalysisWorkflow, columns: set[str]) -> None:
     if not workflow.steps:
         raise AppError("The analysis plan has no steps.", "bad_plan")
     methods = [step for step in workflow.steps if step.kind == "method"]
-    if len(methods) != 1:
-        raise AppError("The plan needs one analysis method.", "bad_plan")
-    method = methods[0].method.strip().lower().replace(" ", "_").replace("-", "_")
-    if method in _BLOCKED:
+    if not methods:
+        raise AppError("The plan needs an analysis method.", "bad_plan")
+    if len(methods) > _MAX_METHODS:
         raise AppError(
-            "MaxDiff and conjoint are out of scope for this studio. No alternative model was run.",
-            "unsupported_method",
+            f"The plan has {len(methods)} methods. Split it into requests of "
+            f"{_MAX_METHODS} methods or fewer.",
+            "bad_plan",
         )
-    if method not in SUPPORTED_METHODS and family(method) is None:
-        if methods[0].procedure.strip():
-            validate_procedure(methods[0].procedure)
-        elif uses_generated_program(workflow):
-            validate_program(workflow.program, columns, set(referenced_names(workflow)))
-        else:
-            raise AppError(
-                f"'{methods[0].method}' has no implementation, so no result was published.",
-                "unsupported_method",
-            )
+    for step in methods:
+        _check_method(step, workflow, columns, chained=len(methods) > 1)
     if workflow.weight_variable and workflow.weight_variable not in columns:
         raise AppError(
             f"The plan names {workflow.weight_variable}, which is not in the dataset.",
             "missing_variable",
         )
-    features = set(methods[0].variables) if is_segmentation(method) else set()
+    features: set[str] = set()
+    for step in methods:
+        if is_segmentation(_normal(step.method)):
+            features.update(step.variables)
+    available = set(columns)
+    prefixes: set[str] = set()
     for step in workflow.steps:
         for name in _referenced(step):
-            if name not in columns:
+            if not _known(name, available, prefixes):
                 raise AppError(
                     f"The plan names {name}, which is not in the dataset.",
                     "missing_variable",
@@ -201,7 +217,14 @@ def ensure_runnable(workflow: AnalysisWorkflow, columns: set[str]) -> None:
                         f"{name} is a weight or an id and is not imputed.",
                         "bad_plan",
                     )
-        if step.kind == "profile_crosstab" and features:
+        elif step.kind == "filter":
+            _check_filter(step)
+        elif step.kind == "band":
+            _check_band(step, available)
+            available.add(step.output.strip())
+        elif step.kind == "method":
+            _add_outputs(step, available, prefixes)
+        elif step.kind == "profile_crosstab" and features:
             overlap = sorted(set(step.variables) & features)
             if overlap:
                 raise AppError(
@@ -209,6 +232,147 @@ def ensure_runnable(workflow: AnalysisWorkflow, columns: set[str]) -> None:
                     + ", ".join(overlap),
                     "bad_plan",
                 )
+
+
+_ALIASES = {
+    "regression": "linear_regression",
+    "linear": "linear_regression",
+    "ols": "linear_regression",
+    "ols_regression": "linear_regression",
+    "multiple_regression": "linear_regression",
+    "multiple_linear_regression": "linear_regression",
+    "logistic_regression": "binary_logistic_regression",
+    "logistic": "binary_logistic_regression",
+    "logit": "binary_logistic_regression",
+    "ordinal_logistic_regression": "ordinal_regression",
+    "factor_analysis": "efa",
+    "exploratory_factor_analysis": "efa",
+    "principal_component_analysis": "pca",
+    "principal_components_analysis": "pca",
+    "principal_components": "pca",
+    "kmeans": "clustering",
+    "k_means": "clustering",
+    "chi2": "chi_square",
+    "chisquare": "chi_square",
+    "chi_squared": "chi_square",
+    "ttest": "t_test",
+    "one_way_anova": "anova",
+    "key_driver_analysis": "key_driver",
+    "driver_analysis": "key_driver",
+    "cronbach_alpha": "reliability",
+    "correspondence_analysis": "correspondence",
+    "discriminant_analysis": "discriminant",
+    "descriptives": "descriptive",
+}
+
+
+def canonical_method(method: str) -> str:
+    """Return the registered name for a method, mapping common names such as "regression".
+
+    Args:
+        method: Method name as the planner wrote it.
+
+    Returns:
+        Lower-case, underscored name, mapped to the built-in method when one matches.
+    """
+    name = method.strip().lower().replace(" ", "_").replace("-", "_")
+    return _ALIASES.get(name, name)
+
+
+def _normal(method: str) -> str:
+    """Normalize a method name the way the runner does."""
+    return canonical_method(method)
+
+
+def _check_method(
+    step: AnalysisStep, workflow: AnalysisWorkflow, columns: set[str], *, chained: bool
+) -> None:
+    """Reject a blocked, unknown, or badly combined method step.
+
+    Args:
+        step: Method step.
+        workflow: Plan.
+        columns: Dataset columns.
+        chained: Whether the plan has more than one method.
+
+    Raises:
+        AppError: The method cannot run in this plan.
+    """
+    method = _normal(step.method)
+    if method in _BLOCKED:
+        raise AppError(
+            "MaxDiff and conjoint are out of scope for this studio. No alternative model was run.",
+            "unsupported_method",
+        )
+    if step.split_by and step.output:
+        raise AppError(
+            "A method that runs once per group cannot also save a new column.", "bad_plan"
+        )
+    if method in SUPPORTED_METHODS or family(method) is not None:
+        return
+    if chained:
+        raise AppError(
+            f"'{step.method}' has no built-in runner, so it cannot be chained with other "
+            "methods. Ask for it on its own.",
+            "unsupported_method",
+        )
+    if step.procedure.strip():
+        validate_procedure(step.procedure)
+    elif uses_generated_program(workflow):
+        validate_program(workflow.program, columns, set(referenced_names(workflow)))
+    else:
+        raise AppError(
+            f"'{step.method}' has no implementation, so no result was published.",
+            "unsupported_method",
+        )
+
+
+def _check_filter(step: AnalysisStep) -> None:
+    """Reject a filter without one variable and a rule."""
+    if len(step.variables) != 1:
+        raise AppError("A filter step names exactly one variable.", "bad_plan")
+    has_range = bool(step.bands) and (
+        step.bands[0].lower is not None or step.bands[0].upper is not None
+    )
+    if not step.codes and not has_range:
+        raise AppError(f"The filter on {step.variables[0]} lists no codes or range.", "bad_plan")
+
+
+def _check_band(step: AnalysisStep, available: set[str]) -> None:
+    """Reject a band step that cannot write a new grouped column."""
+    output = step.output.strip()
+    if len(step.variables) != 1 or not output:
+        raise AppError("A band step names one source variable and an output name.", "bad_plan")
+    if output in available:
+        raise AppError(f"{output} is already a column, so the bands need a new name.", "bad_plan")
+    if len(step.bands) < 2:
+        raise AppError(f"Banding {step.variables[0]} needs at least two groups.", "bad_plan")
+    for band in step.bands:
+        if not band.codes and band.lower is None and band.upper is None:
+            raise AppError(f"The band '{band.label}' has no codes or range.", "bad_plan")
+
+
+def _add_outputs(step: AnalysisStep, available: set[str], prefixes: set[str]) -> None:
+    """Record the columns a method step leaves for later steps."""
+    method = _normal(step.method)
+    if step.split_by:
+        return
+    if is_segmentation(method) or step.procedure.strip():
+        available.add(step.output.strip() or "segment")
+    elif method in _SCORES and step.output.strip():
+        prefixes.add(step.output.strip())
+
+
+def _known(name: str, available: set[str], prefixes: set[str]) -> bool:
+    """Return whether a step may use this name at this point in the plan."""
+    if name in available:
+        return True
+    if name.endswith("*"):
+        stem = name[:-1]
+        return bool(stem) and (
+            stem in prefixes or any(column.startswith(stem) for column in available)
+        )
+    return False
 
 
 def compile_script(workflow: AnalysisWorkflow) -> str:
@@ -329,7 +493,7 @@ def _referenced(step: AnalysisStep) -> list[str]:
     """
     names = list(step.variables)
     names.extend(step.predictors)
-    for name in (step.dependent, step.group, step.var_a, step.var_b):
+    for name in (step.dependent, step.group, step.var_a, step.var_b, step.split_by):
         if name:
             names.append(name)
     return names
@@ -377,4 +541,19 @@ def _step_settings(step: AnalysisStep) -> str:
         parts.append(f"dependent={step.dependent}")
     if step.predictors:
         parts.append("predictors=" + ",".join(step.predictors))
+    if step.split_by:
+        parts.append(f"separately for each {step.split_by} group")
+    if step.output:
+        parts.append(f"output={step.output}")
+    if step.bands:
+        parts.append("groups=" + "; ".join(_band_text(band) for band in step.bands))
     return ", ".join(parts)
+
+
+def _band_text(band: Band) -> str:
+    """Describe one band for the plan download."""
+    if band.codes:
+        return f"{band.label} (codes {','.join(band.codes)})"
+    low = "" if band.lower is None else f"{band.lower:g}"
+    high = "" if band.upper is None else f"{band.upper:g}"
+    return f"{band.label} ({low}-{high})"

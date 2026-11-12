@@ -44,7 +44,7 @@ export function DecipherViewer({
           <p>The XML file is not ready.</p>
         )}
         <button
-          className="rounded border border-stone-300 bg-white px-3 py-1.5 disabled:opacity-50"
+          className="rounded border border-line-strong bg-surface px-3 py-1.5 disabled:opacity-50"
           disabled={!xml}
           onClick={onPreview}
           type="button"
@@ -60,7 +60,7 @@ export function DecipherViewer({
         ))}
       </ul>
       {warnings.length > 0 && (
-        <ul className="list-disc pl-5 text-amber-900">
+        <ul className="list-disc pl-5 text-warn">
           {warnings.map((warning) => (
             <li key={warning}>{warning}</li>
           ))}

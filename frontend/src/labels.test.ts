@@ -25,6 +25,8 @@ describe("artifactTypeLabel", () => {
   it("names the questionnaire and Decipher panels", () => {
     expect(artifactTypeLabel("questionnaire")).toBe("Questionnaire");
     expect(artifactTypeLabel("decipher_survey")).toBe("Decipher survey");
+    expect(artifactTypeLabel("sample_purchase")).toBe("Sample purchase");
+    expect(artifactTypeLabel("cleaning")).toBe("Data cleaning");
   });
 
   it("keeps an unknown type readable", () => {

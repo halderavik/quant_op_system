@@ -126,34 +126,34 @@ export function SurveyPreview({
   const canNext = screen?.status === "question" && answerReady(screen, answer) && !busy;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/40 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
         ref={dialog}
         role="dialog"
         aria-modal="true"
         aria-labelledby="survey-preview-title"
         tabIndex={-1}
-        className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-lg bg-white p-6 shadow-lg outline-none"
+        className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-lg bg-surface p-6 shadow-lg outline-none"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p id="survey-preview-title" className="text-xs font-medium uppercase tracking-wide text-stone-500">
+            <p id="survey-preview-title" className="text-xs font-medium uppercase tracking-wide text-muted">
               Survey preview
             </p>
-            {title && <h2 className="text-lg font-semibold text-stone-900">{title}</h2>}
+            {title && <h2 className="text-lg font-semibold text-ink">{title}</h2>}
           </div>
           <button className="text-sm underline" onClick={onClose} type="button">
             Close
           </button>
         </div>
         {stale && (
-          <p className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          <p className="mt-3 rounded border border-warn-line bg-warn-soft px-3 py-2 text-sm text-warn">
             This preview is the programmed file. The questionnaire has changed since.
           </p>
         )}
         {issues.length > 0 ? (
-          <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-amber-950">
+          <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-warn">
             {issues.map((issue) => (
               <li key={issue}>{issue}</li>
             ))}
@@ -161,15 +161,15 @@ export function SurveyPreview({
         ) : (
           <div className="mt-4">
             {screen?.status === "question" && (
-              <p className="text-xs uppercase text-stone-500">Question {stack.length + 1}</p>
+              <p className="text-xs uppercase text-muted">Question {stack.length + 1}</p>
             )}
-            {!screen && !fault && <p className="text-sm text-stone-600">Opening the survey…</p>}
+            {!screen && !fault && <p className="text-sm text-ink-2">Opening the survey…</p>}
             {screen && <ScreenBody answer={answer} rows={rows} screen={screen} setAnswer={setAnswer} />}
-            {hint && <p className="mt-3 text-sm text-stone-600">{hint}</p>}
-            {fault && <p className="mt-3 text-sm text-red-700">{fault}</p>}
+            {hint && <p className="mt-3 text-sm text-ink-2">{hint}</p>}
+            {fault && <p className="mt-3 text-sm text-danger">{fault}</p>}
             <div className="mt-6 flex flex-wrap gap-2">
               <button
-                className="rounded border border-stone-300 bg-white px-3 py-1.5 text-sm disabled:opacity-50"
+                className="rounded border border-line-strong bg-surface px-3 py-1.5 text-sm disabled:opacity-50"
                 disabled={stack.length === 0 || busy}
                 onClick={back}
                 type="button"
@@ -177,7 +177,7 @@ export function SurveyPreview({
                 Back
               </button>
               <button
-                className="rounded border border-stone-300 bg-white px-3 py-1.5 text-sm disabled:opacity-50"
+                className="rounded border border-line-strong bg-surface px-3 py-1.5 text-sm disabled:opacity-50"
                 disabled={busy || issues.length > 0}
                 onClick={restart}
                 type="button"
@@ -186,7 +186,7 @@ export function SurveyPreview({
               </button>
               {screen?.status === "question" && (
                 <button
-                  className="rounded bg-teal-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+                  className="rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-50"
                   disabled={!canNext}
                   onClick={() => void next()}
                   type="button"

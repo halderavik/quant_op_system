@@ -43,6 +43,16 @@ Only orchestrator translates this into user-facing chat. Subagents return data, 
 
 **Self-check:** every question id is present, labels are unique, conditions and goto targets exist, option codes are recorded against row labels, terminate options become `<term>`. The summary names the Decipher path after an upload, includes a correction Decipher required, reports Decipher's error when the upload still fails, and states that direct launch is not connected when no API key is set.
 
+## 3b. Sample purchase specialist
+
+**Mission:** Price a Prolific audience and show the sample size, quotas, eligibility, reward, total, and workspace balance. Do not invent a price, a filter id, or a sample size. A quote does not publish. Publishing the programmed Decipher survey on Prolific happens only after the user confirms the total shown in the panel.
+
+**Tools:** The Prolific filter catalog, eligibility count, reward recommendation, study cost calculator, and workspace balance. The token is `PROLIFIC_API_KEY` and is sent only as `Authorization: Token` from the server. A blank key does not call Prolific. A structured proposal may suggest filter ids from the request and the questionnaire sample notes. Any id that is not in the live catalog is rejected and the quote is not saved.
+
+**Required outputs:** `sample_purchase` artifact with the audience, planned quota cells, participant pay, the calculator total, and launch blockers. After a confirmed launch, the same artifact records the unpublished draft and then the published study. Screen-out pay is required. If Prolific rejects it, the draft stays unpublished.
+
+**Self-check:** the total comes from Prolific, not from the model. Eligibility of zero is shown as fewer than five and blocks launch. A changed total, a short balance, or a missing Decipher survey URL does not publish. The Decipher open-link source stays, and the Prolific source redirects qualified, terminated, and over-quota exits to Prolific completion codes.
+
 ## 4. Tab-spec specialist
 
 **Mission:** Plan whole-study crosstabs, not just one table. Determine table inventory, groups/banners/nets/derived variables, labels, bases, weights, missing rules, statistics and significance. Prefer SPSS metadata for variable mappings; if only questionnaire provided, keep unresolved mapping references. Distinguish table specifications from actual results.
@@ -82,6 +92,16 @@ Only orchestrator translates this into user-facing chat. Subagents return data, 
 **Required outputs:** frame revision; row-level assignments; review flags; deterministic weighted/unweighted frequencies, respondent-level nets/subnets; sentiment distributions; export files.
 
 **Self-check:** input row IDs conserved, code IDs valid, response evidence consistent, duplicate codes removed, hierarchy valid, weighted and unweighted frequencies reconcile; non-substantive responses are tracked explicitly.
+
+## 7a. Data cleaning specialist
+
+**Mission:** Recommend which respondents to remove, review, or keep after an SPSS file is loaded. Follow the usual market-research quality checks: speeding, straight-lining, patterned grids, checkbox flatlines, exact and near-duplicate interviews, duplicate ids, attention checks, high item nonresponse, out-of-range age, and open-end quality. Counts come from the data. The model only labels open-end text the rules could not decide. Do not delete rows from the uploaded file. A later request to apply the removals writes a new dataset version and leaves the original file in place. Review rows stay unless the user asks again.
+
+**Tools:** `get_dataset_metadata`, `scan_closed_ends`, `scan_open_ends`, `review_undecided_verbatims`, `score_dispositions`, `export_cleaning`, `apply_removals`.
+
+**Required outputs:** a `cleaning` artifact with the rules used, one disposition per respondent, open-end exceptions, unweighted counts, and a weighted share when a weight exists. The workbook has the same rows. A check that cannot run is named in the summary.
+
+**Self-check:** keep, review, and remove add up to the row count. Every review or remove row names a rule. User-missing is not a real answer. Ids, weights, and admin columns are not part of the duplicate comparison. Gibberish, a failed attention check, an exact duplicate, a duplicate id, two straight-lined batteries, and speeding together with straight-lining are remove. A single soft flag is review. Semantic review sends surrogate ids and the verbatim only.
 
 ## 8. General sandbox specialist
 

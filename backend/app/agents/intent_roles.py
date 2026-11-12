@@ -43,6 +43,10 @@ def fill_roles(text: str, fields: dict[str, Any], missing: list[str], method: st
     variables = re.search(r"\bvariables?\s+([A-Za-z0-9_,\s]+)", text, re.I)
     if variables:
         fields["variables"] = _names(variables.group(1))
+    if planner_decides(text):
+        # Reason: a chained, banded, or subgroup request needs the planner to read the
+        # whole sentence; one method's keyword roles would ask for the wrong things.
+        return
     needs_dependent = method in {
         "linear_regression",
         "binary_logistic_regression",
@@ -67,6 +71,24 @@ def fill_roles(text: str, fields: dict[str, Any], missing: list[str], method: st
         missing.append("group")
     if method in {"chi_square", "correspondence"} and "var_a" not in fields:
         missing.extend(["var_a", "var_b"])
+
+
+def planner_decides(text: str) -> bool:
+    """Return whether the analysis planner, not keyword roles, should read this request.
+
+    Args:
+        text: User text.
+
+    Returns:
+        True when the request names more than one method or asks for a
+        filter, banding, subgroup, or chained step.
+    """
+    from app.agents.intent import _METHODS
+    from app.engines.analysis.compile import MULTI_STEP
+
+    lowered = text.lower()
+    named = sum(1 for _name, pattern in _METHODS if re.search(pattern, lowered))
+    return named > 1 or bool(MULTI_STEP.search(text))
 
 
 def _names(text: str) -> list[str]:

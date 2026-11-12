@@ -1,22 +1,123 @@
 @import "tailwindcss";
 
-:root {
-  color: #1c1917;
-  background: #f6f5f2;
-  font-family: "Segoe UI", system-ui, sans-serif;
+/*
+ * Semantic color tokens. Components use these names (bg-surface, text-muted,
+ * border-line, bg-accent ...) instead of raw palette classes so one set of
+ * values drives light and dark mode. Body text pairs meet WCAG AA (4.5:1).
+ */
+@theme {
+  --color-canvas: #f5f4f1;
+  --color-surface: #ffffff;
+  --color-sunken: #f1efeb;
+  --color-line: #e5e2dc;
+  --color-line-strong: #cfcbc4;
+  --color-ink: #1c1917;
+  --color-ink-2: #44403c;
+  --color-muted: #66615b;
+  --color-accent: #0f5f58;
+  --color-accent-strong: #0b4a45;
+  --color-accent-soft: #e3f1ee;
+  --color-on-accent: #ffffff;
+  --color-warn: #7a3a0a;
+  --color-warn-soft: #fff8e6;
+  --color-warn-line: #f3d88d;
+  --color-danger: #b42318;
+  --color-danger-soft: #fef1f0;
+  --color-success: #066a4a;
+  --color-success-soft: #e8f7ef;
+
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
 }
 
-body {
-  margin: 0;
-  min-height: 100vh;
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --color-canvas: #0e1011;
+  --color-surface: #16191b;
+  --color-sunken: #1d2023;
+  --color-line: #2a2e32;
+  --color-line-strong: #3b4045;
+  --color-ink: #ecebe8;
+  --color-ink-2: #cbc8c3;
+  --color-muted: #a19e98;
+  --color-accent: #3cc2b1;
+  --color-accent-strong: #66d6c7;
+  --color-accent-soft: #10302c;
+  --color-on-accent: #04211e;
+  --color-warn: #f7cf6a;
+  --color-warn-soft: #2a2110;
+  --color-warn-line: #5b4613;
+  --color-danger: #ff9b92;
+  --color-danger-soft: #2f1615;
+  --color-success: #74e0b2;
+  --color-success-soft: #0f2a20;
 }
 
-button,
-input,
-textarea {
-  font: inherit;
-}
+/* Base styles live in the base layer so utility classes can override them. */
+@layer base {
+  :root {
+    color-scheme: light;
+  }
 
-#root {
-  min-height: 100vh;
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  button:not(:disabled),
+  [role="tab"],
+  summary {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
+  /* One visible focus ring for every interactive element. */
+  :where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Thin scrollbars that follow the theme. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }

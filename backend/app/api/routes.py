@@ -13,6 +13,7 @@ from app.agents.orchestrator import Orchestrator
 from app.api.deps import get_db
 from app.api.routes_jobs import router as jobs_router
 from app.api.routes_library import router as library_router
+from app.api.routes_sample import router as sample_router
 from app.errors import AppError
 from app.repositories.records import (
     ProjectRepository,
@@ -23,6 +24,7 @@ from app.schemas.project import MessageIn, ProjectCreate, ProjectUpdate
 
 router = APIRouter()
 router.include_router(library_router)
+router.include_router(sample_router)
 router.include_router(jobs_router)
 
 
@@ -99,6 +101,7 @@ def health(request: Request) -> dict:
         "llm_message": models.get("reason"),
         "models": models.get("configured"),
         "sandbox": "docker" if docker_available() else "subprocess_fallback",
+        "prolific_configured": settings.prolific_configured,
     }
 
 

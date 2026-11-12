@@ -67,6 +67,7 @@ export function artifactToShow<T extends PanelArtifact>(previous: T[], next: T[]
     return !before || before.latest?.version !== item.latest?.version;
   });
   return (
+    changed.find((item) => item.type === "sample_purchase") ??
     changed.find((item) => item.type === "decipher_survey") ??
     changed.find((item) => item.type === "questionnaire") ??
     changed[0] ??

@@ -27,7 +27,11 @@ def run_pca(frame: pd.DataFrame, plan: AnalysisPlan) -> AnalysisResult:
     data, flow = prepare(frame, plan, plan.variables)
     n_components = int(plan.options.get("n_components") or min(3, data.shape[1]))
     model = PCA(n_components=n_components, random_state=plan.random_seed)
-    model.fit(StandardScaler().fit_transform(data))
+    scaled = StandardScaler().fit_transform(data)
+    model.fit(scaled)
+    # Reason: a component's sign is arbitrary; point each one so most items load positively.
+    signs = np.where(model.components_.sum(axis=1) < 0, -1.0, 1.0)
+    model.components_ = model.components_ * signs[:, None]
     loadings = {
         f"PC{index + 1}": {
             name: float(model.components_[index, col]) for col, name in enumerate(plan.variables)
@@ -39,6 +43,7 @@ def run_pca(frame: pd.DataFrame, plan: AnalysisPlan) -> AnalysisResult:
         flow,
         metrics={"explained_variance_ratio": [float(v) for v in model.explained_variance_ratio_]},
         estimates=loadings,
+        descriptive=_scores(plan, data, model.transform(scaled)),
     )
 
 
@@ -57,6 +62,9 @@ def run_efa(frame: pd.DataFrame, plan: AnalysisPlan) -> AnalysisResult:
     scaled = StandardScaler().fit_transform(data)
     model = FactorAnalysis(n_components=n_components, random_state=plan.random_seed)
     model.fit(scaled)
+    # Reason: a factor's sign is arbitrary; point each one so most items load positively.
+    signs = np.where(model.components_.sum(axis=1) < 0, -1.0, 1.0)
+    model.components_ = model.components_ * signs[:, None]
     loadings = model.components_.T
     communalities = np.sum(loadings**2, axis=1)
     estimates = {
@@ -69,7 +77,32 @@ def run_efa(frame: pd.DataFrame, plan: AnalysisPlan) -> AnalysisResult:
     ]
     if flow["valid_n"] < 5 * len(plan.variables):
         warnings.append("The sample is small relative to the number of items.")
-    return _done(plan, flow, estimates=estimates, warnings=warnings)
+    return _done(
+        plan,
+        flow,
+        estimates=estimates,
+        warnings=warnings,
+        descriptive=_scores(plan, data, model.transform(scaled)),
+    )
+
+
+def _scores(plan: AnalysisPlan, data: pd.DataFrame, scores: np.ndarray) -> dict:
+    """Return row scores when a later step will use them.
+
+    Args:
+        plan: Plan. ``options.save_scores`` asks for the scores.
+        data: Complete rows that entered the model, with their original index.
+        scores: One column per factor or component.
+
+    Returns:
+        Scores and the row index, or an empty dictionary.
+    """
+    if not plan.options.get("save_scores"):
+        return {}
+    return {
+        "scores": [[float(value) for value in column] for column in scores.T],
+        "row_index": list(data.index),
+    }
 
 
 def run_clustering(frame: pd.DataFrame, plan: AnalysisPlan) -> AnalysisResult:

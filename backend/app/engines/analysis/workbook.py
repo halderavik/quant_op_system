@@ -28,6 +28,7 @@ def workbook_bytes(
     _rows_sheet(book, "Recodes", _recode_rows(result))
     _method_sheet(book, result)
     _profile_sheet(book, result)
+    _compare_sheet(book, result)
     _rows_sheet(book, "Diagnostics", _diagnostic_rows(result))
     summary = book.create_sheet("Summary")
     summary.append(["Summary"])
@@ -66,6 +67,15 @@ def _plan_sheet(book: Workbook, workflow: AnalysisWorkflow) -> None:
             settings.append(f"k={step.k}")
         if step.kind in {"top_box", "bottom_box"}:
             settings.append(f"box={step.box or 2}")
+        if step.codes:
+            settings.append("codes=" + ",".join(step.codes))
+        if step.split_by:
+            settings.append(f"separately by {step.split_by}")
+        if step.output:
+            settings.append(f"output={step.output}")
+        for band in step.bands:
+            rule = ",".join(band.codes) if band.codes else f"{band.lower}-{band.upper}"
+            settings.append(f"{band.label}: {rule}")
         sheet.append(
             [
                 index,
@@ -133,6 +143,39 @@ def _profile_sheet(book: Workbook, result: dict[str, Any]) -> None:
         for row in table.get("rows") or []:
             values = row.get("values") or {}
             sheet.append([row.get("label"), *[values.get(column) for column in columns]])
+        sheet.append([])
+
+
+def _compare_sheet(book: Workbook, result: dict[str, Any]) -> None:
+    """Write subgroup comparisons, one block per split method.
+
+    Args:
+        book: Workbook.
+        result: Computed payload.
+    """
+    comparisons = ((result.get("diagnostics") or {}).get("comparisons")) or []
+    if not comparisons:
+        return
+    sheet = book.create_sheet("Group comparison")
+    for block in comparisons:
+        groups = list(block.get("groups") or [])
+        bases = block.get("bases") or {}
+        sheet.append([f"{block.get('method')} separately by {block.get('split_by')}"])
+        two = len(groups) == 2
+        sheet.append(
+            ["Term", "Field", *groups, *([f"{groups[1]} minus {groups[0]}"] if two else [])]
+        )
+        sheet.append(["Base", "valid n", *[bases.get(group) for group in groups]])
+        for row in block.get("rows") or []:
+            values = row.get("values") or {}
+            sheet.append(
+                [
+                    row.get("term"),
+                    row.get("field"),
+                    *[values.get(group) for group in groups],
+                    *([row.get("difference")] if two else []),
+                ]
+            )
         sheet.append([])
 
 

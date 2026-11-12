@@ -68,7 +68,7 @@ export function AnalysisViewer({
               <li key={step.step_id ?? index}>
                 <span className="font-medium">{(step.kind ?? "step").replaceAll("_", " ")}</span>
                 {step.reason ? ` — ${step.reason}` : ""}
-                {stepSettings(step) && <div className="text-stone-600">{stepSettings(step)}</div>}
+                {stepSettings(step) && <div className="text-ink-2">{stepSettings(step)}</div>}
               </li>
             ))}
           </ol>
@@ -88,7 +88,7 @@ export function AnalysisViewer({
           Section {section.id ?? index + 1}
           <textarea
             aria-label={`Section ${section.id ?? index + 1}`}
-            className="mt-1 h-28 w-full rounded border border-stone-300 p-2"
+            className="mt-1 h-28 w-full rounded border border-line-strong p-2"
             value={section.narrative ?? ""}
             onChange={(event) => {
               const next = sections.slice();
@@ -102,7 +102,7 @@ export function AnalysisViewer({
         Caveats
         <textarea
           aria-label="Caveats"
-          className="mt-1 h-24 w-full rounded border border-stone-300 p-2"
+          className="mt-1 h-24 w-full rounded border border-line-strong p-2"
           value={(report.caveats ?? []).join("\n")}
           onChange={(event) => {
             const caveats = event.target.value.split("\n").filter((line) => line.trim());
@@ -112,7 +112,7 @@ export function AnalysisViewer({
       </label>
       <section>
         <h3 className="font-semibold">Claims</h3>
-        <ul className="mt-1 list-disc pl-5 text-stone-700">
+        <ul className="mt-1 list-disc pl-5 text-ink-2">
           {(report.claims ?? []).map((claim) => (
             <li key={claim.path}>{claim.sentence} ({String(claim.stated_value)})</li>
           ))}
@@ -121,15 +121,15 @@ export function AnalysisViewer({
       {result.diagnostics != null && (
         <section>
           <h3 className="font-semibold">Diagnostics</h3>
-          <pre className="overflow-auto whitespace-pre-wrap">{JSON.stringify(result.diagnostics, null, 2)}</pre>
+          <pre className="overflow-auto whitespace-pre-wrap rounded-md border border-line bg-surface p-3 font-mono text-xs">{JSON.stringify(result.diagnostics, null, 2)}</pre>
         </section>
       )}
       <section>
         <h3 className="font-semibold">Script</h3>
-        <pre className="overflow-auto whitespace-pre-wrap">{String(result.script ?? content.script ?? "")}</pre>
+        <pre className="overflow-auto whitespace-pre-wrap rounded-md border border-line bg-surface p-3 font-mono text-xs">{String(result.script ?? content.script ?? "")}</pre>
       </section>
       {typeof content.chart_file_id === "string" && content.chart_file_id && (
-        <img alt={String(content.title ?? "Chart")} className="max-w-full" src={downloadUrl(content.chart_file_id)} />
+        <img alt={String(content.title ?? "Chart")} className="max-w-full rounded-md border border-line bg-white p-2" src={downloadUrl(content.chart_file_id)} />
       )}
       {!sections.length && <p className="whitespace-pre-wrap">{report.rendered}</p>}
       <ProvenancePanel content={content} version={version} />

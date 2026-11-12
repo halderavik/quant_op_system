@@ -6,6 +6,13 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.agents.intent import build_contract
 from app.agents.questionnaire_route import assistant_published_questionnaire
+from app.agents.route_context import (
+    artifact_versions,
+    previous_turn,
+    project_snapshot,
+    study_objectives,
+)
+from app.agents.router import choose_route
 from app.agents.sdk import run_structured
 from app.agents.spec_run_intent import assistant_offered_tabspec
 from app.config import Settings
@@ -139,12 +146,30 @@ class Orchestrator:
         )
         previous_text = previous_assistant.content if previous_assistant else ""
         analysis_followup, prior_request = _prior_analysis_request(db, previous_assistant)
+        prior_intent, prior_status = previous_turn(db, previous_assistant)
         artifacts = ArtifactRepository(db)
+        user_text = str(task.contract.get("user_request") or "")
+        snapshot = project_snapshot(
+            artifact_versions_by_type=artifact_versions(artifacts, task.project_id),
+            dataset_active=bool(project.active_dataset_id),
+            variable_names=dataset_names,
+            previous_reply=previous_text,
+            previous_intent=prior_intent,
+            previous_status=prior_status,
+            objectives=study_objectives(project.study_context),
+        )
+        conversation = ProjectRepository(db).conversation(task.conversation_id)
+        decision = await choose_route(
+            self.settings,
+            text=user_text,
+            snapshot=snapshot,
+            session_id=f"route-{conversation.sdk_session_id}",
+        )
         contract = build_contract(
             task_id=task.id,
             project_id=task.project_id,
             conversation_id=task.conversation_id,
-            text=str(task.contract.get("user_request") or ""),
+            text=user_text,
             variable_names=dataset_names,
             has_dataset=bool(project.active_dataset_id),
             has_questionnaire=artifacts.latest_of_type(task.project_id, "questionnaire")
@@ -154,8 +179,18 @@ class Orchestrator:
             offered_tabspec=assistant_offered_tabspec(previous_text),
             analysis_followup=analysis_followup,
             prior_analysis_request=prior_request,
+            chosen_intent=None if decision is None else decision.intent,
+            route_reason="" if decision is None else decision.reason,
+            has_cleaning=artifacts.latest_of_type(task.project_id, "cleaning") is not None,
+            cleaning_followup=prior_intent == "clean_data",
+            sample_followup=prior_intent == "buy_sample",
         )
         task.contract = contract.model_dump(mode="json")
+        if contract.missing_required == ["cleaning_recommendation"]:
+            raise AppError(
+                "I need a fraud recommendation before I drop anyone. Ask me to identify fraud respondents first.",
+                "missing_roles",
+            )
         if contract.missing_required:
             names = ", ".join(f"`{name}`" for name in dataset_names[:12])
             detail = f" I still need: {', '.join(contract.missing_required)}."
@@ -201,6 +236,36 @@ class Orchestrator:
 
             self._event(db, task, "running", {"message": "Programming the Decipher survey"})
             return program_decipher_survey(db, self.storage, task.project_id, self.settings)
+        if contract.intent == "buy_sample":
+            from app.services.sample_launch import launch_sample, transition_sample
+            from app.services.sample_quote import quote_from_message, sample_action
+
+            action = sample_action(text)
+            if action in {"pause", "start", "stop"}:
+                self._event(db, task, "running", {"message": "Updating the Prolific study"})
+                prolific_action = {"pause": "PAUSE", "start": "START", "stop": "STOP"}[action]
+                return transition_sample(db, self.settings, task.project_id, prolific_action)
+            if action == "launch":
+                self._event(db, task, "running", {"message": "Publishing the sample"})
+                saved = ArtifactRepository(db).latest_of_type(task.project_id, "sample_purchase")
+                confirmed = 0
+                if saved is not None and isinstance(saved.content, dict):
+                    confirmed = int(saved.content.get("total_cost_cents") or 0)
+                return launch_sample(
+                    db,
+                    self.storage,
+                    self.settings,
+                    task.project_id,
+                    confirmed,
+                )
+            self._event(db, task, "running", {"message": "Pricing the sample"})
+            return await quote_from_message(
+                db,
+                self.settings,
+                task.project_id,
+                text,
+                session_id=ProjectRepository(db).conversation(task.conversation_id).sdk_session_id,
+            )
         if contract.intent == "build_tabspec":
 
             def _stage(message: str) -> None:
@@ -300,6 +365,54 @@ class Orchestrator:
                 contract.provided_fields,
                 ProjectRepository(db).conversation(task.conversation_id).sdk_session_id,
             )
+        if contract.intent == "clean_data":
+            from app.services.cleaning_run import run_cleaning
+
+            self._event(db, task, "running", {"message": "Checking respondents"})
+
+            def _stage(message: str) -> None:
+                """Record one cleaning stage.
+
+                Args:
+                    message: Stage text from the job, not model output.
+                """
+                self._event(db, task, "running", {"message": message})
+
+            return await run_cleaning(
+                db,
+                self.storage,
+                self.settings,
+                task.project_id,
+                task.conversation_id,
+                on_stage=_stage,
+            )
+        if contract.intent == "generate_synthetic":
+            from app.services.synthetic_run import run_synthetic
+
+            self._event(db, task, "running", {"message": "Reading the survey flow"})
+
+            def _stage(message: str) -> None:
+                """Record one synthetic-data stage.
+
+                Args:
+                    message: Stage text from the job, not model output.
+                """
+                self._event(db, task, "running", {"message": message})
+
+            return await run_synthetic(
+                db,
+                self.storage,
+                self.settings,
+                task.project_id,
+                task.conversation_id,
+                text,
+                on_stage=_stage,
+            )
+        if contract.intent == "apply_cleaning":
+            from app.services.cleaning_run import apply_cleaning
+
+            self._event(db, task, "running", {"message": "Writing the cleaned dataset"})
+            return apply_cleaning(db, self.storage, task.project_id)
         if contract.intent == "code_open_ends":
             from app.services.coding_run import run_open_end_coding
 

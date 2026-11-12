@@ -29,6 +29,12 @@ If you cannot tell features from profiling variables, set status to clarificatio
 If the request includes a follow-up instruction, apply that instruction and do not ask the same question again.
 When the follow-up says to drop empty variables, leave those variables out and run.
 When the follow-up says to run the task and does not name an eligible subgroup, use all respondents. Do not ask about routing again.
+Steps run in order, and a plan may hold up to 6 method steps. Plan every analysis the request asks for, in the order asked.
+filter: keeps only some respondents for every later step. Set variables to one column and codes to the codes to keep, or one band with lower and upper for a numeric range. Use it for "among", "only", or "just" a group.
+band: makes a new grouped column. Set variables to the source column, output to a new name made of letters, digits, and underscores that is not already a column, and bands to the groups in order, each with a label and either an inclusive lower and upper bound or the codes it merges. Later steps use the output name, for example as an ANOVA group or a chi-square variable.
+split_by on a method step runs that method once for each group of that variable and compares the groups side by side. Use it for "separately for", "for each", or "compare men and women". Never put a group label such as women or Region North in predictors or variables.
+Chaining: to use factor or component scores in a later step, set output on the efa or pca step to a short prefix such as F, and refer to the scores as F* in the later step. Set k to the number of factors when the user gives one; otherwise leave it at 0 and the run keeps factors with eigenvalues above 1. A segmentation saves its labels under output, or segment when output is empty; later steps can use that name as a group, a split_by, or a predictor. profile_crosstab crosses its variables against group, or against the latest segmentation when group is empty.
+Codes labeled "Don't know", "Not sure", "Prefer not to say", or similar are set to missing before any step runs. Do not list them in box codes and do not treat them as scale points.
 Do not invent a variable. Leave k at 0 when the user did not choose k. Keep a k the user stated.
 Set random_seed to 42 unless the user gave a seed.
 Do not plan MaxDiff or conjoint.

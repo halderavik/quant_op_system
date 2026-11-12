@@ -7,7 +7,7 @@ import pyreadstat
 import pytest
 
 from app.config import Settings
-from app.engines.spss import read_spss
+from app.engines.spss import is_text_column, read_spss
 from app.errors import AppError
 from app.sandbox.runner import docker_command, run_script
 from app.services.storage import Storage
@@ -40,6 +40,27 @@ def test_sav_keeps_labels_and_missing_codes(tmp_path: Path) -> None:
     assert 99 in trust["user_missing_values"] or 99.0 in trust["user_missing_values"]
     assert "weight_main" in weights
     assert list(frame["trust"])[1] == 99 or list(frame["trust"])[1] == 99.0
+
+
+def test_string_variables_are_text(tmp_path: Path) -> None:
+    """String columns are text under pandas 3, where they are not ``object`` dtype."""
+    path = tmp_path / "text.sav"
+    frame = pd.DataFrame(
+        {"uuid": ["a1", "b2", "c3"], "Q1": [1.0, 2.0, 1.0], "Q2oe": ["fast", "", "cheap"]}
+    )
+    pyreadstat.write_sav(frame, str(path))
+    _, variables, _ = read_spss(path)
+    kinds = {item["name"]: item["is_text"] for item in variables}
+    assert kinds == {"uuid": True, "Q1": False, "Q2oe": True}
+
+
+def test_is_text_column_without_storage_type() -> None:
+    """The dtype fallback accepts both the pandas 3 string dtype and object."""
+    assert is_text_column(pd.Series(["a", "b"], dtype="string"))
+    assert is_text_column(pd.Series(["a", None], dtype=object))
+    assert not is_text_column(pd.Series([1.0, 2.0]))
+    assert is_text_column(pd.Series([1.0]), "string")
+    assert not is_text_column(pd.Series(["1"], dtype=object), "double")
 
 
 def test_malformed_sav_is_readable(tmp_path: Path) -> None:

@@ -34,10 +34,11 @@ def read_spss(path: Path) -> tuple[pd.DataFrame, list[dict[str, Any]], list[str]
     measures = dict(getattr(meta, "variable_measure", {}) or {})
     ranges = dict(getattr(meta, "missing_ranges", {}) or {})
     discrete = dict(getattr(meta, "missing_user_values", {}) or {})
+    storage = dict(getattr(meta, "readstat_variable_types", {}) or {})
     variables: list[dict[str, Any]] = []
     for index, name in enumerate(frame.columns):
         label = labels[index] if index < len(labels) and labels[index] else name
-        kind = "text" if frame[name].dtype == object else "numeric"
+        kind = "text" if is_text_column(frame[name], storage.get(name)) else "numeric"
         variables.append(
             {
                 "name": str(name),
@@ -59,6 +60,22 @@ def read_spss(path: Path) -> tuple[pd.DataFrame, list[dict[str, Any]], list[str]
         if "weight" in item["name"].lower() or "weight" in item["label"].lower()
     ]
     return frame, variables, weights
+
+
+def is_text_column(series: pd.Series, storage: str | None = None) -> bool:
+    """Return whether an SPSS column holds strings.
+
+    Args:
+        series: Column as read by pyreadstat.
+        storage: pyreadstat storage type for the column, when known.
+
+    Returns:
+        True for a string variable.
+    """
+    if storage:
+        return storage == "string"
+    # Reason: pandas 3 reads strings as the ``str`` dtype, not ``object``.
+    return series.dtype == object or isinstance(series.dtype, pd.StringDtype)
 
 
 def _missing_codes(

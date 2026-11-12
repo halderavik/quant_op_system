@@ -1,10 +1,17 @@
 import { useEffect, useState } from "react";
 import type { Artifact } from "./api";
-import { downloadUrl, exportQuestionnaire, exportTabspec, previewSource, programDecipher, saveDownload, saveRevision, type SavedRevision } from "./api";
+import { Code2, Download as DownloadIcon, Eye } from "lucide-react";
+import { downloadUrl, exportTabspec, previewSource, programDecipher, saveDownload, saveRevision, type SavedRevision } from "./api";
+import { ArtifactIcon, runDownload } from "./OutputsPanel";
+import { artifactDownloads, validationTone, type Download } from "./outputs";
+import { Badge, Button } from "./ui";
 import { AnalysisViewer } from "./editors/AnalysisViewer";
+import { CleaningViewer } from "./editors/CleaningViewer";
+import { SyntheticViewer } from "./editors/SyntheticViewer";
 import { CodeframeEditor } from "./editors/CodeframeEditor";
 import { CrosstabViewer } from "./editors/CrosstabViewer";
 import { DecipherViewer } from "./editors/DecipherViewer";
+import { SamplePurchaseViewer } from "./editors/SamplePurchaseViewer";
 import { ProvenancePanel } from "./editors/ProvenancePanel";
 import { QuestionnaireEditor } from "./editors/QuestionnaireEditor";
 import { ReviewQueue } from "./editors/ReviewQueue";
@@ -59,7 +66,7 @@ export function ArtifactEditor({
   }, [artifact.type, draft, latest, state]);
 
   if (!latest) {
-    return <p className="p-6 text-stone-500">This artifact has no revision yet.</p>;
+    return <p className="p-6 text-muted">This artifact has no revision yet.</p>;
   }
 
   async function save(next: Record<string, unknown>) {
@@ -87,27 +94,19 @@ export function ArtifactEditor({
     }
   }
 
-  async function downloadTabspec() {
+  async function download(entry: Download) {
     setWorking(true);
     setMessage("");
     try {
-      const exported = await exportTabspec(projectId, draft);
-      saveDownload(exported.file_id);
+      if (entry.kind === "export" && entry.exporter === "tabspec") {
+        // Export the grid as edited, including unsaved changes.
+        const exported = await exportTabspec(projectId, draft);
+        saveDownload(exported.file_id);
+      } else {
+        await runDownload(entry, projectId, artifact);
+      }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Excel export failed.");
-    } finally {
-      setWorking(false);
-    }
-  }
-
-  async function downloadKind(kind: "docx" | "pdf") {
-    setWorking(true);
-    setMessage("");
-    try {
-      const exported = await exportQuestionnaire(projectId, kind);
-      saveDownload(exported.file_id);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Export failed.");
+      setMessage(error instanceof Error ? error.message : "The download failed.");
     } finally {
       setWorking(false);
     }
@@ -161,64 +160,72 @@ export function ArtifactEditor({
     }
   }
 
-  const readOnly = artifact.type === "crosstab" || artifact.type === "chart" || artifact.type === "decipher_survey";
+  const readOnly =
+    artifact.type === "crosstab" ||
+    artifact.type === "chart" ||
+    artifact.type === "decipher_survey" ||
+    artifact.type === "sample_purchase" ||
+    artifact.type === "cleaning" ||
+    artifact.type === "synthetic_data";
   const blocked = artifact.type === "tabspec" && tabSpecBlocked(draft);
+  const downloads = artifactDownloads(artifact);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="border-b border-stone-200 bg-white px-4 py-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-stone-500">{artifactTypeLabel(artifact.type)}</p>
-            <h2 className="text-lg font-semibold text-stone-900">{artifact.name}</h2>
+      <header className="shrink-0 border-b border-line bg-surface px-4 py-3">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
+            <ArtifactIcon className="h-5 w-5" type={artifact.type} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-base font-semibold text-ink" title={artifact.name}>{artifact.name}</h2>
+            <p className="text-xs text-muted">{artifactTypeLabel(artifact.type)} · version {latest.version}</p>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {latest.stale && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-950">Stale</span>}
-            <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs text-stone-700">{validationLabel(latest.validation_status)}</span>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            {latest.stale && <Badge tone="warn">Stale</Badge>}
+            <Badge tone={validationTone(latest.validation_status)}>{validationLabel(latest.validation_status)}</Badge>
           </div>
         </div>
-        {currentStage && <p aria-live="polite" className="mt-2 text-sm text-teal-900">Working · {currentStage}</p>}
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-          {artifact.type === "tabspec" && (
-            <button className="rounded border border-stone-300 bg-white px-3 py-1.5" disabled={working} onClick={() => void downloadTabspec()} type="button">
-              Download Excel
-            </button>
-          )}
+        {currentStage && <p aria-live="polite" className="mt-2 text-sm text-accent">Working · {currentStage}</p>}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           {artifact.type === "questionnaire" && (
             <>
-              <button className="rounded border border-stone-300 bg-white px-3 py-1.5" disabled={working} onClick={() => downloadKind("docx")} type="button">
-                Download DOCX
-              </button>
-              <button className="rounded border border-stone-300 bg-white px-3 py-1.5" disabled={working} onClick={() => downloadKind("pdf")} type="button">
-                Download PDF
-              </button>
-              <button className="rounded border border-stone-300 bg-white px-3 py-1.5" disabled={working} onClick={() => program()} type="button">
-                Program in Decipher
-              </button>
-              <button className="rounded border border-stone-300 bg-white px-3 py-1.5" disabled={working} onClick={() => void openDraftPreview()} type="button">
+              <Button disabled={working} onClick={() => void openDraftPreview()} size="sm">
+                <Eye aria-hidden className="h-3.5 w-3.5" />
                 Preview survey
-              </button>
+              </Button>
+              <Button disabled={working} onClick={() => program()} size="sm">
+                <Code2 aria-hidden className="h-3.5 w-3.5" />
+                Program in Decipher
+              </Button>
             </>
           )}
-          <span aria-live="polite" className="text-stone-500">{saveLabel(state)}</span>
-          {!readOnly && (
-            <button
-              className="rounded bg-teal-900 px-3 py-1.5 text-white disabled:opacity-50"
-              disabled={blocked}
-              onClick={() => save(draft)}
-              type="button"
-            >
-              Save
-            </button>
-          )}
+          {downloads.map((entry) => (
+            <Button key={entry.label} disabled={working} onClick={() => void download(entry)} size="sm">
+              <DownloadIcon aria-hidden className="h-3.5 w-3.5" />
+              {entry.label}
+            </Button>
+          ))}
+          <span className="ml-auto flex items-center gap-2">
+            {!readOnly && (
+              <span aria-live="polite" className={state === "conflict" ? "text-xs text-danger" : "text-xs text-muted"}>
+                {saveLabel(state)}
+              </span>
+            )}
+            {!readOnly && (
+              <Button disabled={blocked || state === "saving"} onClick={() => save(draft)} size="sm" variant="primary">
+                Save
+              </Button>
+            )}
+          </span>
         </div>
       </header>
-      {message && <p className="bg-amber-50 px-4 py-2 text-sm text-amber-950">{message}</p>}
-      <div className="min-h-0 flex-1 overflow-auto bg-stone-50 p-4">
+      {message && <p className="shrink-0 border-b border-warn-line bg-warn-soft px-4 py-2 text-sm text-warn" role="status">{message}</p>}
+      <div className="min-h-0 flex-1 overflow-auto bg-canvas p-4 sm:p-5">
         {artifact.type === "note" && (
           <textarea
             aria-label="Note text"
-            className="h-64 w-full rounded border border-stone-300 p-3"
+            className="h-64 w-full rounded-md border border-line-strong bg-surface p-3"
             value={String(draft.text ?? "")}
             onChange={(event) => {
               setDraft({ ...draft, text: event.target.value });
@@ -227,6 +234,9 @@ export function ArtifactEditor({
           />
         )}
         {artifact.type === "decipher_survey" && <DecipherViewer content={draft} onPreview={openStoredPreview} />}
+        {artifact.type === "sample_purchase" && (
+          <SamplePurchaseViewer content={draft} projectId={projectId} onChanged={onProgrammed} />
+        )}
         {artifact.type === "questionnaire" && (
           <QuestionnaireEditor
             content={draft}
@@ -279,7 +289,9 @@ export function ArtifactEditor({
             }}
           />
         )}
-        {!["note", "questionnaire", "decipher_survey", "tabspec", "crosstab", "analysis", "chart", "codeframe", "coding"].includes(artifact.type) && (
+        {artifact.type === "cleaning" && <CleaningViewer content={draft} />}
+        {artifact.type === "synthetic_data" && <SyntheticViewer content={draft} />}
+        {!["note", "questionnaire", "decipher_survey", "sample_purchase", "tabspec", "crosstab", "analysis", "chart", "codeframe", "coding", "cleaning", "synthetic_data"].includes(artifact.type) && (
           <pre className="whitespace-pre-wrap text-sm">{JSON.stringify(draft, null, 2)}</pre>
         )}
       </div>
@@ -301,10 +313,10 @@ function ChartView({ content, version }: { content: Record<string, unknown>; ver
   const fileId = content.chart_file_id as string | undefined;
   return (
     <div>
-      {fileId && <img alt={String(content.title ?? "Chart")} className="max-w-full" src={downloadUrl(fileId)} />}
+      {fileId && <img alt={String(content.title ?? "Chart")} className="max-w-full rounded-md border border-line bg-white p-2" src={downloadUrl(fileId)} />}
       <p className="mt-3 whitespace-pre-wrap text-sm">{String(content.rendered ?? "")}</p>
       {content.script != null && (
-        <pre className="mt-3 overflow-auto whitespace-pre-wrap text-sm">{String(content.script)}</pre>
+        <pre className="mt-3 overflow-auto whitespace-pre-wrap rounded-md border border-line bg-surface p-3 font-mono text-xs">{String(content.script)}</pre>
       )}
       <ProvenancePanel content={content} version={version} />
     </div>

@@ -1,5 +1,6 @@
 """Program one questionnaire question as a Decipher element."""
 
+import re
 import xml.etree.ElementTree as ET
 
 from app.engines.decipher_expr import safe_label
@@ -20,6 +21,25 @@ from app.schemas.decipher import CoverageItem, Punch
 from app.schemas.questionnaire import Question
 
 _CHOICE = {"single_select", "screener", "rating"}
+# Reason: Forsta's rank sort style. Pinned so a live survey's style does not change under it.
+_RANKSORT = "ranksort.7"
+_NUMBER_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+_TOP_N = re.compile(
+    r"\b(?:top|first|best)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b"
+    r"|\brank\s+(?:only\s+|up\s+to\s+)?(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b",
+    re.I,
+)
 
 
 def emit_question(parent: ET.Element, question: Question, build: SurveyBuild) -> CoverageItem:
@@ -209,7 +229,11 @@ def _allocation(parent: ET.Element, question: Question, build: SurveyBuild) -> C
 
 
 def _rank(parent: ET.Element, question: Question, build: SurveyBuild) -> CoverageItem:
-    """Program a rank as unique choices. No visual rank-sort style is attached.
+    """Program a rank as a drag-and-drop rank sort.
+
+    Each option is a row and each rank position is a choice. ``unique="none,cols"``
+    stops two items sharing a rank. A "top N" question gets N rank positions,
+    optional rows, and a check that exactly N items were ranked.
 
     Args:
         parent: Parent element.
@@ -219,15 +243,55 @@ def _rank(parent: ET.Element, question: Question, build: SurveyBuild) -> Coverag
     Returns:
         Coverage item.
     """
-    node = _question_element(parent, "select", question, build)
-    node.set("unique", "none,cols")
+    label = build.labels[question.id]
+    count = len(question.options)
+    top = rank_limit(question)
+    partial = top is not None and top < count
+    node = _question_element(parent, "select", question, build, unique="none,cols", uses=_RANKSORT)
+    positions = top if partial and top is not None else count
+    # Reason: Decipher rejects the ranksort style without minRanks, the items each respondent must rank.
+    node.set("minRanks", str(max(positions, 1)))
+    if partial:
+        node.set("optional", "1")
     punches = _option_rows(node, question)
-    for index, _option in enumerate(question.options, start=1):
+    for index in range(1, positions + 1):
         add_element(node, "choice", str(index), label=f"ch{index}")
-    warning = f"{question.id} is a rank. A visual rank-sort style is not attached, so this is a unique choice list."
-    _warn(build, warning)
+    warnings: list[str] = []
+    status = "programmed"
+    if partial:
+        # Reason: optional rows let respondents skip items, so the exact count is checked here.
+        script = (
+            f"ranked = len([row for row in {label}.rows if row.val is not None])\n"
+            f"if ranked != {positions}:\n"
+            f'    error("Please rank exactly {positions} items")\n'
+        )
+        add_element(node, "validate", script)
+    if count < 2:
+        status = "partial"
+        warnings.append(
+            f"{question.id} is a rank with fewer than two items, so nothing can be ordered."
+        )
+        _warn(build, warnings[-1])
     _terms_and_gotos(parent, question, build, punches)
-    return _item(question, build, "select", "partial", [warning], punches)
+    return _item(question, build, "select", status, warnings, punches)
+
+
+def rank_limit(question: Question) -> int | None:
+    """Return N when the question asks for only the top N items.
+
+    Args:
+        question: Rank question.
+
+    Returns:
+        N, or None when every item is ranked.
+    """
+    blob = " ".join([question.text, question.instruction or "", *question.programmer_notes])
+    match = _TOP_N.search(blob)
+    if match is None:
+        return None
+    word = (match.group(1) or match.group(2)).lower()
+    value = int(word) if word.isdigit() else _NUMBER_WORDS.get(word)
+    return value if value and value > 0 else None
 
 
 def _loop(parent: ET.Element, question: Question, build: SurveyBuild) -> CoverageItem:

@@ -18,17 +18,17 @@ export function CodeframeEditor({
   const nets = netsOf(content);
   return (
     <div className="space-y-4 text-sm">
-      <button className="rounded border border-stone-400 px-3 py-1" onClick={() => onChange(addCode(content))} type="button">
+      <button className="rounded border border-line-strong px-3 py-1" onClick={() => onChange(addCode(content))} type="button">
         Add code
       </button>
       {codes.map((code, index) => (
-        <fieldset key={code.id} className="rounded border border-stone-200 p-3">
+        <fieldset key={code.id} className="rounded border border-line p-3">
           <legend className="px-1">{code.id}</legend>
           <label className="mt-2 block">
             Label
             <input
               aria-label={`${code.id} label`}
-              className="mt-1 w-full rounded border border-stone-300 px-2 py-1"
+              className="mt-1 w-full rounded border border-line-strong px-2 py-1"
               value={code.label}
               onChange={(event) => onChange(updateCode(content, index, { label: event.target.value }))}
             />
@@ -37,7 +37,7 @@ export function CodeframeEditor({
             Definition
             <textarea
               aria-label={`${code.id} definition`}
-              className="mt-1 h-16 w-full rounded border border-stone-300 p-2"
+              className="mt-1 h-16 w-full rounded border border-line-strong p-2"
               value={code.definition ?? ""}
               onChange={(event) => onChange(updateCode(content, index, { definition: event.target.value }))}
             />
@@ -46,7 +46,7 @@ export function CodeframeEditor({
             Include examples
             <input
               aria-label={`${code.id} include examples`}
-              className="mt-1 w-full rounded border border-stone-300 px-2 py-1"
+              className="mt-1 w-full rounded border border-line-strong px-2 py-1"
               value={(code.include_examples ?? []).join(" | ")}
               onChange={(event) => onChange(updateCode(content, index, { include_examples: splitExamples(event.target.value) }))}
             />
@@ -55,7 +55,7 @@ export function CodeframeEditor({
             Exclude examples
             <input
               aria-label={`${code.id} exclude examples`}
-              className="mt-1 w-full rounded border border-stone-300 px-2 py-1"
+              className="mt-1 w-full rounded border border-line-strong px-2 py-1"
               value={(code.exclude_examples ?? []).join(" | ")}
               onChange={(event) => onChange(updateCode(content, index, { exclude_examples: splitExamples(event.target.value) }))}
             />
@@ -64,7 +64,7 @@ export function CodeframeEditor({
             Parent net
             <select
               aria-label={`${code.id} parent`}
-              className="ml-2 rounded border border-stone-300 px-2 py-1"
+              className="ml-2 rounded border border-line-strong px-2 py-1"
               value={code.parent_id ?? ""}
               onChange={(event) => onChange(reparentCode(content, index, event.target.value))}
             >

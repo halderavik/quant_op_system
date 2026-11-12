@@ -6,6 +6,7 @@ and leave observed answers alone.
 
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
@@ -14,6 +15,7 @@ from sklearn.preprocessing import StandardScaler
 from app.engines.analysis.common import prepare_clustering
 from app.engines.analysis.procedures import family, is_segmentation, normalize_method, partition
 from app.engines.derived import in_codes
+from app.engines.offscale import off_scale_codes
 from app.errors import AppError
 from app.schemas.analysis import AnalysisPlan, AnalysisStep, AnalysisWorkflow
 
@@ -38,6 +40,65 @@ def mask_user_missing(frame: pd.DataFrame, variables: list[dict[str, Any]]) -> p
         if bool(mask.any()):
             out.loc[mask, name] = pd.NA
     return out
+
+
+def mask_off_scale(
+    frame: pd.DataFrame, variables: list[dict[str, Any]]
+) -> tuple[pd.DataFrame, list[str]]:
+    """Set "Don't know", "Prefer not to say", and similar codes to null.
+
+    These codes are often not declared user-missing, so a top box or a mean
+    would otherwise read 97 as the best rating.
+
+    Args:
+        frame: Respondent data.
+        variables: Variable dictionary with value labels.
+
+    Returns:
+        Copy with those answers set to null, and one note per code and label.
+    """
+    out = frame.copy()
+    touched: dict[tuple[str, str], list[str]] = {}
+    for item in variables:
+        name = str(item.get("name") or "")
+        labels = item.get("value_labels") or {}
+        if not name or name not in out.columns or not labels:
+            continue
+        codes = off_scale_codes(labels)
+        if not codes:
+            continue
+        mask = in_codes(out[name], codes)
+        if not bool(mask.any()):
+            continue
+        out.loc[mask, name] = pd.NA
+        for code in codes:
+            label = next((str(text) for key, text in labels.items() if _same_code(key, code)), "")
+            touched.setdefault((_code_text(code), label), []).append(name)
+    notes = [
+        f"Treated code {code} ({label}) as missing on {_name_list(names)}."
+        for (code, label), names in touched.items()
+    ]
+    return out, notes
+
+
+def _same_code(key: Any, code: float) -> bool:
+    """Return whether a value-label key is this numeric code."""
+    try:
+        return float(key) == code
+    except (TypeError, ValueError):
+        return False
+
+
+def _code_text(code: float) -> str:
+    """Format a code without a trailing .0."""
+    return str(int(code)) if float(code).is_integer() else str(code)
+
+
+def _name_list(names: list[str]) -> str:
+    """Shorten a long list of variable names for a note."""
+    if len(names) <= 4:
+        return ", ".join(names)
+    return f"{', '.join(names[:3])} and {len(names) - 3} more"
 
 
 def impute_missing(
@@ -250,6 +311,7 @@ def rewrite_step(step: AnalysisStep, alias: dict[str, str]) -> AnalysisStep:
             "group": _one(step.group),
             "var_a": _one(step.var_a),
             "var_b": _one(step.var_b),
+            "split_by": _one(step.split_by),
         }
     )
 
@@ -353,3 +415,117 @@ def _output_name(frame: pd.DataFrame, source: str, label: str, box: int) -> str:
         name = f"{base}_{suffix}"
         suffix += 1
     return name
+
+
+def apply_filter(frame: pd.DataFrame, step: AnalysisStep) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Keep the rows where one variable has the listed codes or falls in a range.
+
+    Later steps see only these rows.
+
+    Args:
+        frame: Working data.
+        step: Filter step. ``variables`` names one column; ``codes`` or the
+            first band's bounds say which rows stay.
+
+    Returns:
+        Filtered frame and a log with the before and after counts.
+
+    Raises:
+        AppError: The column is missing, the rule is empty, or fewer than 3 rows remain.
+    """
+    if len(step.variables) != 1:
+        raise AppError("A filter step names exactly one variable.", "bad_plan")
+    name = step.variables[0]
+    if name not in frame.columns:
+        raise AppError(f"'{name}' is not in the dataset.", "missing_variable")
+    if step.codes:
+        keep = in_codes(frame[name], list(step.codes))
+        rule: dict[str, Any] = {"codes": list(step.codes)}
+    elif step.bands and (step.bands[0].lower is not None or step.bands[0].upper is not None):
+        band = step.bands[0]
+        keep = _in_range(pd.to_numeric(frame[name], errors="coerce"), band.lower, band.upper)
+        rule = {"lower": band.lower, "upper": band.upper}
+    else:
+        raise AppError(f"The filter on {name} lists no codes or range.", "bad_plan")
+    kept = frame.loc[keep.fillna(False).astype(bool)].copy()
+    if len(kept) < 3:
+        raise AppError(f"Fewer than 3 respondents match the filter on {name}.", "small_sample")
+    return kept, {"variable": name, **rule, "before": int(len(frame)), "kept": int(len(kept))}
+
+
+def apply_bands(
+    frame: pd.DataFrame, step: AnalysisStep
+) -> tuple[pd.DataFrame, dict[str, Any], dict[str, str]]:
+    """Write a new grouped column from numeric ranges or merged codes.
+
+    Bands are coded 1, 2, 3 in the order listed. A value that fits two bands
+    goes to the first one. A value that fits none stays missing.
+
+    Args:
+        frame: Working data.
+        step: Band step with one source variable, an output name, and bands.
+
+    Returns:
+        Frame with the new column, a log with counts, and its value labels.
+
+    Raises:
+        AppError: The step is incomplete or the output name is taken.
+    """
+    if len(step.variables) != 1 or not step.output.strip():
+        raise AppError("A band step names one source variable and an output name.", "bad_plan")
+    source = step.variables[0]
+    output = step.output.strip()
+    if source not in frame.columns:
+        raise AppError(f"'{source}' is not in the dataset.", "missing_variable")
+    if output in frame.columns:
+        raise AppError(f"{output} is already a column, so the bands need a new name.", "bad_plan")
+    if len(step.bands) < 2:
+        raise AppError(f"Banding {source} needs at least two groups.", "bad_plan")
+    numeric = pd.to_numeric(frame[source], errors="coerce")
+    coded = pd.Series(np.nan, index=frame.index, dtype=float)
+    groups: list[dict[str, Any]] = []
+    labels: dict[str, str] = {}
+    for index, band in enumerate(step.bands, start=1):
+        if band.codes:
+            hit = in_codes(frame[source], list(band.codes))
+        elif band.lower is not None or band.upper is not None:
+            hit = _in_range(numeric, band.lower, band.upper)
+        else:
+            raise AppError(f"The band '{band.label}' has no codes or range.", "bad_plan")
+        hit = hit.fillna(False).astype(bool) & coded.isna()
+        coded.loc[hit] = float(index)
+        labels[str(index)] = band.label
+        groups.append({"code": index, "label": band.label, "n": int(hit.sum())})
+    out = frame.copy()
+    out[output] = coded
+    unassigned = int((frame[source].notna() & coded.isna()).sum())
+    detail = {"source": source, "output": output, "bands": groups, "unassigned": unassigned}
+    return out, detail, labels
+
+
+def kaiser_count(frame: pd.DataFrame, names: list[str]) -> int:
+    """Return how many correlation eigenvalues exceed 1, kept between 1 and items - 1.
+
+    Args:
+        frame: Working data.
+        names: Items entering the factor or component model.
+
+    Returns:
+        Number of factors to extract.
+    """
+    data = frame[names].apply(pd.to_numeric, errors="coerce").dropna()
+    if len(data) < 3 or len(names) < 2:
+        return 1
+    corr = np.corrcoef(data.to_numpy(dtype=float).T)
+    eigen = np.linalg.eigvalsh(np.nan_to_num(corr))
+    return int(max(1, min(int((eigen > 1).sum()), len(names) - 1)))
+
+
+def _in_range(series: pd.Series, lower: float | None, upper: float | None) -> pd.Series:
+    """Return whether each number lies inside inclusive bounds."""
+    hit = series.notna()
+    if lower is not None:
+        hit &= series >= lower
+    if upper is not None:
+        hit &= series <= upper
+    return hit

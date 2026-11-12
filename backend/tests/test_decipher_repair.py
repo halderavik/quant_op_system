@@ -74,3 +74,29 @@ def test_unknown_or_broken_xml_is_left_unchanged() -> None:
     )
     assert broken.changed is False
     assert broken.xml == "<survey>"
+
+
+def test_rejected_style_falls_back_to_the_plain_question() -> None:
+    """A style Decipher cannot apply is removed so the survey still uploads."""
+    xml = (
+        '<survey name="Coffee" state="testing">'
+        '<select label="Q6" uses="ranksort.7" minRanks="5" unique="none,cols">'
+        '<title>Rank these</title><row label="r1">A</row><choice label="ch1">1</choice>'
+        "</select>"
+        '<radio label="Q7"><title>Pick</title><row label="r1">A</row></radio>'
+        "</survey>"
+    )
+    repaired = repair_survey_xml(
+        xml,
+        [
+            "survey: while using style 'lib/steam/ranksort/v7': "
+            "The attribute 'minRanks' is required to be specified but was not"
+        ],
+    )
+    assert repaired.changed
+    assert "uses=" not in repaired.xml
+    assert "minRanks" not in repaired.xml
+    assert 'unique="none,cols"' in repaired.xml
+    assert repaired.fixes == [
+        "Removed the ranksort style from Q6, so those questions use Decipher's plain layout."
+    ]

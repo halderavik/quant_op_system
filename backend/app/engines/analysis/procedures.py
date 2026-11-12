@@ -12,6 +12,7 @@ from app.engines.analysis.common import prepare_clustering, script_for, versions
 from app.engines.analysis.multivariate import run_clustering
 from app.engines.analysis.procedure_code import run_procedure
 from app.engines.analysis.segmenters import dbscan, hierarchical, mixture, pam, spectral
+from app.engines.offscale import is_off_scale_label
 from app.errors import AppError
 from app.schemas.analysis import AnalysisPlan, AnalysisResult
 
@@ -89,7 +90,11 @@ def nominal_columns(variables: list[dict[str, Any]], names: list[str]) -> list[s
             continue
         codes: list[int] = []
         blocked = False
-        for key in labels:
+        for key, text in labels.items():
+            # Reason: "Don't know" (97) is masked before the run, so it must not
+            # break the run of scale codes that keeps a rating numeric.
+            if is_off_scale_label(text):
+                continue
             try:
                 codes.append(int(float(key)))
             except (TypeError, ValueError):

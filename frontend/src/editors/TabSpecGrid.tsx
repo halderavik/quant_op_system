@@ -37,11 +37,11 @@ export function TabSpecGrid({
         <button type="button" onClick={() => onChange(insertTable(content, tables.length - 1))}>Insert table</button>
       </div>
       {issues.map((issue) => (
-        <p key={issue} className="text-sm text-amber-900">{issue}</p>
+        <p key={issue} className="text-sm text-warn">{issue}</p>
       ))}
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
-          <thead className="sticky top-0 bg-white">
+          <thead className="sticky top-0 bg-surface">
             <tr>
               <th className="py-2 pr-2">Table</th>
               {columns.map((column) => (
@@ -52,13 +52,13 @@ export function TabSpecGrid({
           </thead>
           <tbody>
             {tables.map((table, index) => (
-              <tr key={`${table.id}-${index}`} className="border-t border-stone-200">
+              <tr key={`${table.id}-${index}`} className="border-t border-line">
                 <td className="py-2 pr-2">{table.id}</td>
                 {columns.map((column) => (
                   <td key={column.field} className="py-2 pr-2">
                     <input
                       aria-label={`${table.id} ${column.label}`}
-                      className="w-full min-w-28 rounded border border-stone-300 px-2 py-1"
+                      className="w-full min-w-28 rounded border border-line-strong px-2 py-1"
                       value={cellValue(table, column.field)}
                       onChange={(event) =>
                         onChange(updateTableField(content, index, column.field, event.target.value))

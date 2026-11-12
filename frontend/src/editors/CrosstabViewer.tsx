@@ -47,7 +47,7 @@ export function CrosstabViewer({
       <label className="block text-sm" htmlFor="table-search">Search tables</label>
       <input
         id="table-search"
-        className="w-full rounded border border-stone-300 px-2 py-1"
+        className="w-full rounded border border-line-strong px-2 py-1"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
@@ -57,7 +57,7 @@ export function CrosstabViewer({
           return (
             <li key={id}>
               <button
-                className={`rounded border px-2 py-1 text-sm ${current && (current.table_id ?? current.title) === id ? "bg-stone-900 text-white" : ""}`}
+                className={`rounded border px-2 py-1 text-sm ${current && (current.table_id ?? current.title) === id ? "bg-accent text-on-accent border-accent" : ""}`}
                 onClick={() => setSelected(id)}
                 type="button"
               >
@@ -68,18 +68,18 @@ export function CrosstabViewer({
         })}
       </ul>
       {visible.length > listed.length && (
-        <p className="text-sm text-stone-500">Showing {listed.length} of {visible.length}. Search to narrow the list.</p>
+        <p className="text-sm text-muted">Showing {listed.length} of {visible.length}. Search to narrow the list.</p>
       )}
       {oversized && (
-        <p className="text-sm text-amber-900">This saved book is too large to open. Generate the cross-tabs again to build the workbook.</p>
+        <p className="text-sm text-warn">This saved book is too large to open. Generate the cross-tabs again to build the workbook.</p>
       )}
-      {visible.length === 0 && !oversized && <p className="text-sm text-stone-500">No table matches that search.</p>}
-      {loadError && <p className="text-sm text-red-700">{loadError}</p>}
+      {visible.length === 0 && !oversized && <p className="text-sm text-muted">No table matches that search.</p>}
+      {loadError && <p className="text-sm text-danger">{loadError}</p>}
       {shown && <TableGrid table={shown} />}
       {exceptions.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold">Exceptions</h3>
-          <ul className="list-disc pl-5 text-sm text-amber-900">
+          <ul className="list-disc pl-5 text-sm text-warn">
             {exceptions.map((line) => (
               <li key={line}>{line}</li>
             ))}
@@ -100,7 +100,7 @@ function TableGrid({ table }: { table: CrosstabTable }) {
       <h3 className="mb-2 font-semibold">{table.title}</h3>
       <div className="overflow-auto">
         <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-white">
+          <thead className="sticky top-0 bg-surface">
             <tr>
               <th className="py-2 text-left">Row</th>
               {(table.columns ?? []).map((column) => (
@@ -113,7 +113,7 @@ function TableGrid({ table }: { table: CrosstabTable }) {
           </thead>
           <tbody>
             {(table.rows ?? []).slice(0, 80).map((row) => (
-              <tr key={row.label} className="border-t border-stone-200">
+              <tr key={row.label} className="border-t border-line">
                 <td className="py-1">{row.label}</td>
                 {(table.columns ?? []).map((column) => {
                   const cell = row.cells?.[column.id];
@@ -124,7 +124,7 @@ function TableGrid({ table }: { table: CrosstabTable }) {
                   return (
                     <td key={column.id} className="px-2 text-right" title={tip}>
                       <div>{cell?.display_value ?? "—"}</div>
-                      <div className="text-stone-500">{cell?.unweighted_numerator ?? ""}</div>
+                      <div className="text-muted">{cell?.unweighted_numerator ?? ""}</div>
                       {letters ? <div className="text-xs tracking-wide">{letters}</div> : null}
                     </td>
                   );
@@ -134,7 +134,7 @@ function TableGrid({ table }: { table: CrosstabTable }) {
           </tbody>
         </table>
       </div>
-      <ul className="mt-3 list-disc pl-5 text-sm text-stone-600">
+      <ul className="mt-3 list-disc pl-5 text-sm text-ink-2">
         {(table.footnotes ?? []).map((note) => (
           <li key={note}>{note}</li>
         ))}

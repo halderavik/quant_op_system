@@ -121,7 +121,7 @@ def test_compiler_programs_structured_questions() -> None:
 
 
 def test_partial_types_warn_without_inventing_structure() -> None:
-    """Loops, dates, ranks, and empty grids are flagged instead of guessed."""
+    """Loops, dates, and empty grids are flagged instead of guessed."""
     document = Questionnaire(
         id="q-edge",
         title="Edge cases",
@@ -161,11 +161,13 @@ def test_partial_types_warn_without_inventing_structure() -> None:
     assert root.find(".//loop[@label='Q1']") is not None
     assert root.find(".//loop[@label='Q1']/block") is not None
     assert "YYYY-MM-DD" in result.xml
-    assert root.find(".//select[@label='Q3']").get("unique") == "none,cols"
+    rank = root.find(".//select[@label='Q3']")
+    assert rank.get("unique") == "none,cols"
+    assert rank.get("uses") == "ranksort.7"
     assert "total != 100" in result.xml
     assert any("loop body is empty" in warning for warning in result.warnings)
     assert any("calendar" in warning for warning in result.warnings)
-    assert any("rank-sort" in warning for warning in result.warnings)
+    assert not any("Q3" in warning for warning in result.warnings)
     assert any("no grid cells were invented" in warning for warning in result.warnings)
     assert any("unsupported" in warning for warning in result.warnings)
 
@@ -328,3 +330,38 @@ def test_launcher_is_not_configured(tmp_path) -> None:
     with pytest.raises(AppError) as caught:
         launcher.launch("<survey/>", "Coffee")
     assert caught.value.code == "decipher_not_configured"
+
+
+def test_rank_uses_rank_sort_and_top_n_ranks_only_n() -> None:
+    """A full rank gets one position per item. A top-3 rank gets three and an exact-count check."""
+    brands = [Option(code=index, label=f"Brand {index}") for index in range(1, 7)]
+    document = Questionnaire(
+        id="q-rank",
+        title="Ranks",
+        questions=[
+            Question(id="Q1", type="rank", text="Rank these brands", options=brands),
+            Question(
+                id="Q2",
+                type="rank",
+                text="Which brands do you prefer?",
+                instruction="Rank your top three.",
+                options=brands,
+            ),
+        ],
+    )
+    result = compile_decipher(document)
+    root = ET.fromstring(result.xml)
+    full = root.find(".//select[@label='Q1']")
+    top = root.find(".//select[@label='Q2']")
+    assert full.get("uses") == top.get("uses") == "ranksort.7"
+    assert len(full.findall("choice")) == 6
+    assert full.get("minRanks") == "6"
+    assert top.get("minRanks") == "3"
+    assert full.get("optional") == "0"
+    assert full.find("validate") is None
+    assert len(top.findall("choice")) == 3
+    assert top.get("optional") == "1"
+    assert "ranked != 3" in top.find("validate").text
+    assert len(top.findall("row")) == 6
+    coverage = {item.question_id: item.status for item in result.items}
+    assert coverage["Q1"] == coverage["Q2"] == "programmed"
