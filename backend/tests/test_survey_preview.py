@@ -23,7 +23,7 @@ def test_selecting_the_terminate_row_ends_the_survey() -> None:
     xml = compile_decipher(_programmed()).xml
     ended = step_preview(xml, {"S1": PreviewAnswer(rows=["r1"])}, "S1")
     assert ended.status == "terminated"
-    assert ended.title == "Thank you for your time."
+    assert ended.title == "S1: TERMINATE - No"
     assert "taking our survey" in ended.message
 
 

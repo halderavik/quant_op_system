@@ -5,6 +5,7 @@ import types
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel
 
 from app.agents.model_router import ModelRouter
 from app.agents.sdk import run_structured
@@ -12,11 +13,33 @@ from app.config import Settings
 from app.errors import AppError
 
 
-class _Batch:
-    """Stand-in for a parsed coding batch."""
+class _Batch(BaseModel):
+    """Stand-in for a coding batch."""
 
-    def __init__(self, label: str) -> None:
-        self.label = label
+    label: str
+
+
+def _reply(text: str, stop_reason: str = "end_turn") -> object:
+    """A final Claude message with one text block."""
+    return types.SimpleNamespace(
+        stop_reason=stop_reason, content=[types.SimpleNamespace(type="text", text=text)]
+    )
+
+
+class _Stream:
+    """Context manager returned by the fake ``beta.messages.stream``."""
+
+    def __init__(self, message: object) -> None:
+        self.message = message
+
+    def __enter__(self) -> "_Stream":
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+    def get_final_message(self) -> object:
+        return self.message
 
 
 def _settings(tmp_path: Path, **overrides: object) -> Settings:
@@ -61,7 +84,7 @@ def _install_anthropic(monkeypatch: pytest.MonkeyPatch, messages: object) -> Non
     class Anthropic:
         def __init__(self, api_key: str) -> None:
             self.api_key = api_key
-            self.messages = messages
+            self.beta = types.SimpleNamespace(messages=messages)
 
     module.Anthropic = Anthropic
     monkeypatch.setitem(sys.modules, "anthropic", module)
@@ -71,13 +94,13 @@ def _install_anthropic(monkeypatch: pytest.MonkeyPatch, messages: object) -> Non
 async def test_coding_role_calls_claude_sonnet(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A coding role sends the Claude model id and returns the parsed batch."""
+    """A coding role sends the Claude model id with a JSON schema and returns the validated batch."""
     captured: dict[str, object] = {}
 
     class Messages:
-        def parse(self, **kwargs: object) -> object:
+        def stream(self, **kwargs: object) -> _Stream:
             captured.update(kwargs)
-            return types.SimpleNamespace(parsed_output=_Batch("coded"))
+            return _Stream(_reply('{"label": "coded"}'))
 
     _install_anthropic(monkeypatch, Messages())
     result = await run_structured(
@@ -91,8 +114,44 @@ async def test_coding_role_calls_claude_sonnet(
     )
     assert result.label == "coded"
     assert captured["model"] == "claude-sonnet-5-5"
-    assert captured["output_format"] is _Batch
-    assert captured["max_tokens"] == 16384
+    schema = captured["output_config"]["format"]["schema"]
+    assert schema["additionalProperties"] is False and "label" in schema["properties"]
+    assert captured["fallbacks"] == "default"
+
+
+@pytest.mark.asyncio
+async def test_schema_too_large_goes_in_the_instructions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When Claude cannot compile the schema, it is sent in the instructions and the answer is validated."""
+    calls: list[dict[str, object]] = []
+
+    class Messages:
+        def stream(self, **kwargs: object) -> _Stream:
+            calls.append(kwargs)
+            if "format" in kwargs["output_config"]:
+                raise RuntimeError("The compiled grammar is too large")
+            if len(calls) == 2:
+                return _Stream(_reply('Here you go: {"wrong": 1}'))
+            return _Stream(_reply('```json\n{"label": "fixed"}\n```'))
+
+    _install_anthropic(monkeypatch, Messages())
+
+    class _Large(_Batch):
+        """A separate type so the remembered too-large set starts empty."""
+
+    result = await run_structured(
+        _settings(tmp_path),
+        name="Open-end coding specialist",
+        instructions="Use only supplied code ids.",
+        prompt="row 1",
+        output_type=_Large,
+        role="coding",
+        session_id="session-1",
+    )
+    assert result.label == "fixed"
+    assert len(calls) == 3
+    assert "JSON schema" in calls[1]["system"]
 
 
 @pytest.mark.asyncio
@@ -127,7 +186,7 @@ async def test_claude_failure_does_not_fall_back_to_openai(
     """A Claude API error stays a model error and does not switch providers."""
 
     class Messages:
-        def parse(self, **kwargs: object) -> object:
+        def stream(self, **kwargs: object) -> object:
             raise RuntimeError("overloaded")
 
     _install_anthropic(monkeypatch, Messages())

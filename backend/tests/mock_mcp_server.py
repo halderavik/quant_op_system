@@ -31,8 +31,19 @@ if _DEMO_BRIEF.exists():
 
 STATE: dict[str, Any] = {
     "files": {
-        "f-brief": {"id": "f-brief", "name": "BrewCo study brief.txt", "folder": "Briefs", "text": BRIEF},
-        "f-reports": {"id": "f-reports", "name": "Reports", "folder": "", "text": "", "is_folder": True},
+        "f-brief": {
+            "id": "f-brief",
+            "name": "BrewCo study brief.txt",
+            "folder": "Briefs",
+            "text": BRIEF,
+        },
+        "f-reports": {
+            "id": "f-reports",
+            "name": "Reports",
+            "folder": "",
+            "text": "",
+            "is_folder": True,
+        },
     },
     "messages": [],
 }
@@ -70,20 +81,33 @@ def build_server() -> MCPServer:
         annotations=WRITE,
         description="Create a file from base64 content inside a folder. Returns its id and link.",
     )
-    def create_file(name: str, content_base64: str, mime_type: str = "", parent_id: str = "") -> str:
+    def create_file(
+        name: str, content_base64: str, mime_type: str = "", parent_id: str = ""
+    ) -> str:
         data = base64.b64decode(content_base64)
         file_id = f"f-{len(STATE['files']) + 1}"
         STATE["files"][file_id] = {
-            "id": file_id, "name": name, "folder": parent_id, "text": "", "size": len(data),
+            "id": file_id,
+            "name": name,
+            "folder": parent_id,
+            "text": "",
+            "size": len(data),
             "mime_type": mime_type,
         }
         return json.dumps(
-            {"id": file_id, "name": name, "size": len(data), "link": f"https://drive.example/{file_id}"}
+            {
+                "id": file_id,
+                "name": name,
+                "size": len(data),
+                "link": f"https://drive.example/{file_id}",
+            }
         )
 
     @server.tool(annotations=READ, description="List Slack channels.")
     def list_channels() -> str:
-        return json.dumps([{"id": "C01", "name": "research"}, {"id": "C02", "name": "brewco-client"}])
+        return json.dumps(
+            [{"id": "C01", "name": "research"}, {"id": "C02", "name": "brewco-client"}]
+        )
 
     @server.tool(annotations=WRITE, description="Post a message to a Slack channel by id.")
     def post_message(channel_id: str, text: str) -> str:
@@ -119,9 +143,12 @@ def app(token: str = "") -> Any:
     Returns:
         ASGI app serving MCP at /mcp.
     """
-    return _BearerGate(build_server().streamable_http_app(
+    return _BearerGate(
+        build_server().streamable_http_app(
             stateless_http=True, max_request_body_size=50 * 1024 * 1024
-        ), token)
+        ),
+        token,
+    )
 
 
 def serve_in_thread(port: int, token: str) -> uvicorn.Server:
@@ -134,7 +161,9 @@ def serve_in_thread(port: int, token: str) -> uvicorn.Server:
     Returns:
         The uvicorn server. Set ``should_exit`` to stop it.
     """
-    server = uvicorn.Server(uvicorn.Config(app(token), host="127.0.0.1", port=port, log_level="warning"))
+    server = uvicorn.Server(
+        uvicorn.Config(app(token), host="127.0.0.1", port=port, log_level="warning")
+    )
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     for _ in range(100):

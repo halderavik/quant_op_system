@@ -94,7 +94,9 @@ async def add_custom(
         The connector after its first test.
     """
     settings = request.app.state.settings
-    row = store.add_custom(db, settings, name=body.name, server_url=body.server_url, token=body.token)
+    row = store.add_custom(
+        db, settings, name=body.name, server_url=body.server_url, token=body.token
+    )
     await store.test(db, settings, row)
     db.commit()
     return store.public(settings, row)
@@ -117,16 +119,22 @@ def update_connector(
     """
     settings = request.app.state.settings
     row = store.update_settings(
-        db, store.get(db, account_id),
-        server_url=body.server_url, scopes=body.scopes, tenant_id=body.tenant_id,
-        token=body.token, settings=settings,
+        db,
+        store.get(db, account_id),
+        server_url=body.server_url,
+        scopes=body.scopes,
+        tenant_id=body.tenant_id,
+        token=body.token,
+        settings=settings,
     )
     db.commit()
     return store.public(settings, row)
 
 
 @router.post("/connectors/{account_id}/connect")
-async def connect(account_id: str, request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
+async def connect(
+    account_id: str, request: Request, db: Session = Depends(get_db)
+) -> dict[str, Any]:
     """Start sign-in, or test a token-based connector.
 
     Args:

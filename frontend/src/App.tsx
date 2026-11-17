@@ -2,6 +2,7 @@ import { clsx } from "clsx";
 import {
   ArrowUp,
   Database,
+  GraduationCap,
   Layers,
   Maximize2,
   MessageSquare,
@@ -39,6 +40,7 @@ import {
 } from "./api";
 import { BrandLogo, BrandMark } from "./BrandLogo";
 import { ConnectorApprovals, ConnectorsDialog } from "./Connectors";
+import { LessonsDialog } from "./Lessons";
 import { ArtifactEditor } from "./Editors";
 import { LiveQualityPanel } from "./LiveQualityPanel";
 import { QualityDashboard } from "./quality/QualityDashboard";
@@ -85,6 +87,7 @@ export function App() {
   const [expanded, setExpanded] = useState(false);
   const [theme, setTheme] = useTheme();
   const [connectorsOpen, setConnectorsOpen] = useState(false);
+  const [lessonsOpen, setLessonsOpen] = useState(false);
   const [dashboard, setDashboard] = useState<{ survey?: string } | null>(null);
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [actions, setActions] = useState<ConnectorAction[]>([]);
@@ -359,6 +362,10 @@ export function App() {
             <span className="ml-auto rounded-full bg-accent-soft px-1.5 text-[11px] font-semibold text-accent">
               {connectors.filter((item) => item.status === "connected").length} on
             </span>
+          </Button>
+          <Button className="w-full justify-start" onClick={() => setLessonsOpen(true)} size="sm" variant="ghost">
+            <GraduationCap aria-hidden className="h-4 w-4" />
+            Learned rules
           </Button>
           <Button className="w-full justify-start" onClick={() => setTheme(nextPreference(theme))} size="sm" variant="ghost">
             <ThemeIcon aria-hidden className="h-4 w-4" />
@@ -713,6 +720,7 @@ export function App() {
         </>
       )}
       {dashboard && <QualityDashboard initialSurvey={dashboard.survey} onClose={() => setDashboard(null)} />}
+      {lessonsOpen && <LessonsDialog onClose={() => setLessonsOpen(false)} />}
       {connectorsOpen && (
         <ConnectorsDialog
           onChanged={setConnectors}

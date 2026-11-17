@@ -5,7 +5,14 @@ from typing import Any
 
 from app.engines.expression import evaluate
 from app.schemas.expression import BoolExpr, Comparison, Expr
-from app.schemas.questionnaire import FlowIssue, FlowReport, Questionnaire, RespondentPreview
+from app.schemas.questionnaire import (
+    FlowIssue,
+    FlowReport,
+    Option,
+    Question,
+    Questionnaire,
+    RespondentPreview,
+)
 
 _OP_WORDS = {
     "eq": "equals",
@@ -21,6 +28,38 @@ _PUNCH = re.compile(r"[rc]\d+")
 _CODE_OPS = {"eq", "ne", "in", "not_in"}
 _RANGE_OPS = {"gt", "gte", "lt", "lte"}
 _RANGE_TYPES = {"numeric", "rating", "allocation", "date"}
+
+
+def reference_table(
+    document: Questionnaire,
+) -> tuple[set[str], dict[str, Question], dict[str, float]]:
+    """Names a condition may use, what each one is, and where it is known in the interview.
+
+    Derived variables with programmed values count as single- or multi-select
+    questions computed right after their ``after`` question.
+
+    Args:
+        document: Questionnaire.
+
+    Returns:
+        Known names, the question (or stand-in) for each, and its position.
+    """
+    questions: dict[str, Question] = {question.id: question for question in document.questions}
+    index: dict[str, float] = {
+        question.id: float(position) for position, question in enumerate(document.questions)
+    }
+    for variable in document.derived_variables:
+        if not variable.values or variable.id in questions:
+            continue
+        questions[variable.id] = Question(
+            id=variable.id,
+            type="multi_select" if variable.multiple else "single_select",
+            text=variable.label or variable.id,
+            options=[Option(code=value.code, label=value.label) for value in variable.values],
+        )
+        anchor = index.get(variable.after or "", -1.0)
+        index[variable.id] = anchor + 0.5
+    return set(questions), questions, index
 
 
 def validate_questionnaire(document: Questionnaire) -> FlowReport:
@@ -46,9 +85,7 @@ def validate_questionnaire(document: Questionnaire) -> FlowReport:
         issues.append(
             FlowIssue(severity="error", code="duplicate_id", message="Question ids must be unique")
         )
-    known = set(ids)
-    questions = {question.id: question for question in document.questions}
-    index = {question_id: position for position, question_id in enumerate(ids)}
+    known, questions, index = reference_table(document)
     graph: dict[str, list[str]] = {question_id: [] for question_id in ids}
     for question in document.questions:
         for option in question.options:
@@ -88,7 +125,7 @@ def validate_questionnaire(document: Questionnaire) -> FlowReport:
             )
             if rule.go_to in {"END", "TERMINATE"}:
                 continue
-            if rule.go_to not in known:
+            if rule.go_to not in graph:
                 issues.append(
                     FlowIssue(
                         severity="error",
@@ -99,7 +136,7 @@ def validate_questionnaire(document: Questionnaire) -> FlowReport:
                 )
             else:
                 graph[question.id].append(rule.go_to)
-        position = index[question.id]
+        position = int(index[question.id])
         terminates = any(
             rule.go_to == "TERMINATE" and rule.when is None for rule in question.routing
         )
@@ -341,6 +378,10 @@ def _check_codes(
     """
     if expr.op in {"answered", "not_answered"}:
         return
+    if expr.aggregate == "count":
+        return  # a count of selected rows is a number on any multi-row question
+    if expr.row is not None and question.type in {"grid", "matrix"} and expr.op in _RANGE_OPS:
+        return  # a grid row compared with scale codes
     if expr.op in _RANGE_OPS and question.type not in _RANGE_TYPES:
         issues.append(
             FlowIssue(
@@ -355,6 +396,8 @@ def _check_codes(
             )
         )
         return
+    if question.type in {"numeric", "allocation", "date"} and expr.row is None:
+        return  # a typed number, not an answer code (the options are no-answer boxes)
     if not question.options or expr.op not in _CODE_OPS | _RANGE_OPS:
         return
     codes = {str(option.code) for option in question.options}

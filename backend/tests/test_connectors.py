@@ -49,7 +49,8 @@ def _connect_custom(client: TestClient, url: str, token: str = TOKEN) -> dict:
         Connector JSON.
     """
     response = client.post(
-        "/api/connectors/custom", json={"name": "Stand-in workspace", "server_url": url, "token": token}
+        "/api/connectors/custom",
+        json={"name": "Stand-in workspace", "server_url": url, "token": token},
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -108,7 +109,9 @@ async def test_slack_token_response_uses_the_user_token(monkeypatch: pytest.Monk
     monkeypatch.setattr(
         oauth.httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(_handler))
     )
-    body = await oauth._token_request("https://slack.com/api/oauth.v2.user.access", {"code_verifier": "v"})
+    body = await oauth._token_request(
+        "https://slack.com/api/oauth.v2.user.access", {"code_verifier": "v"}
+    )
     assert body["access_token"] == "xoxp-1"
 
     def _refused(_request: httpx.Request) -> httpx.Response:
@@ -151,7 +154,9 @@ def test_connector_requests_route_without_the_model() -> None:
     assert product_lock("Post the key takeaways to #research") == "use_connector"
     assert product_lock("Import the study brief from Google Drive") == "use_connector"
     assert product_lock("Add a question asking whether they share files via Google Drive") is None
-    assert product_lock("Run a key driver analysis to find what helps to drive recommendation") is None
+    assert (
+        product_lock("Run a key driver analysis to find what helps to drive recommendation") is None
+    )
 
 
 def test_agent_imports_a_brief_and_queues_an_upload(client: TestClient, mcp_url: str) -> None:

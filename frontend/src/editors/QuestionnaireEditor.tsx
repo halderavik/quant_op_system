@@ -13,6 +13,27 @@ import {
   updateQuestionText,
   type FlowIssue,
 } from "./model";
+import { buildCatalog, derivedLines, logicLines, type LogicLine, type QuestionLite } from "./logic";
+
+function LogicList({ lines, onResolve }: { lines: LogicLine[]; onResolve?: (text: string) => void }) {
+  return (
+    <dl className="mt-1 grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
+      {lines.map((line, lineIndex) => (
+        <div key={`${line.label}-${lineIndex}`} className="contents">
+          <dt className={line.todo ? "font-medium text-warn" : "text-ink-2"}>{line.label}</dt>
+          <dd className={line.todo ? "text-warn" : "text-ink"}>
+            {line.text}
+            {line.todo && onResolve && line.label === "To-do" && (
+              <button className="ml-2 text-xs underline" type="button" onClick={() => onResolve(line.text)}>
+                Mark done
+              </button>
+            )}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 
 export function QuestionnaireEditor({
   content,
@@ -25,8 +46,43 @@ export function QuestionnaireEditor({
 }) {
   const questions = questionsOf(content);
   const modules = modulesOf(content);
+  const source = content.source as { mode?: string; filename?: string; checked_items?: number } | null | undefined;
+  const derived = (content.derived_variables as { id: string; label?: string; definition: string; values?: { code: string | number; label: string }[]; unresolved?: string[] }[] | undefined) ?? [];
+  const catalog = buildCatalog(questions as QuestionLite[], derived);
+  const planned = questions.some((question) => (question as QuestionLite).programming);
+  const todos = questions.flatMap((question) =>
+    (((question as QuestionLite).programming?.unresolved as string[] | undefined) ?? []).map((text) => ({ id: question.id, text })),
+  );
   return (
     <div className="space-y-4">
+      {source?.filename && (
+        <p className="rounded border border-line bg-sunken px-3 py-2 text-sm text-ink-2">
+          {source.mode === "exact"
+            ? `Imported exactly as written from ${source.filename}. ${source.checked_items ?? 0} pieces of text, the question order, and the punch codes were checked against the file.`
+            : `Drafted using ${source.filename} as a reference.`}
+        </p>
+      )}
+      {planned && (
+        <section className="rounded border border-line bg-surface px-3 py-2 text-sm">
+          <p className="font-medium text-ink">Programming logic</p>
+          <p className="mt-1 text-ink-2">
+            Each question below shows how it will be programmed: who sees it, which rows show, checks, and terminates.
+            Review it against the questionnaire, edit anything that is wrong (or ask in chat), then ask to program it in Decipher.
+          </p>
+          {todos.length > 0 ? (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-warn">{todos.length} item(s) need a programmer&apos;s decision</summary>
+              <ul className="mt-1 list-disc pl-5 text-ink">
+                {todos.map((todo, todoIndex) => (
+                  <li key={`${todo.id}-${todoIndex}`}><span className="font-medium">{todo.id}</span>: {todo.text}</li>
+                ))}
+              </ul>
+            </details>
+          ) : (
+            <p className="mt-2 text-ink-2">No open items.</p>
+          )}
+        </section>
+      )}
       <div className="flex items-center justify-between">
         <p className="text-sm text-ink-2">{questions.length} questions</p>
         <button className="rounded border border-line-strong bg-surface px-3 py-1.5 text-sm" onClick={() => onChange(addQuestion(content))} type="button">
@@ -83,6 +139,19 @@ export function QuestionnaireEditor({
               <button className="underline" type="button" onClick={() => onChange(deleteQuestion(content, index))}>Delete question</button>
               <button className="underline" type="button" onClick={() => onChange(addOption(content, index))}>Add option</button>
             </div>
+            {(question as QuestionLite).programming && (
+              <div className="mt-3 rounded border border-line bg-sunken px-3 py-2">
+                <p className="text-xs font-medium text-ink-2">How it will be programmed</p>
+                <LogicList
+                  lines={logicLines(question as QuestionLite, catalog)}
+                  onResolve={(text) => {
+                    const programming = { ...((question as QuestionLite).programming ?? {}) };
+                    programming.unresolved = ((programming.unresolved as string[] | undefined) ?? []).filter((item) => item !== text);
+                    onChange(updateQuestionField(content, index, { programming }));
+                  }}
+                />
+              </div>
+            )}
             {modules.length > 0 && (
               <label className="mt-3 block text-xs font-medium text-ink-2">
                 Module
@@ -98,6 +167,16 @@ export function QuestionnaireEditor({
                   ))}
                 </select>
               </label>
+            )}
+            {(question.matrix_items ?? []).length > 0 && (
+              <div className="mt-3 text-xs text-ink-2">
+                <p className="font-medium">Grid rows</p>
+                <ol className="mt-1 list-decimal space-y-0.5 pl-5 text-sm text-ink">
+                  {(question.matrix_items ?? []).map((item, rowIndex) => (
+                    <li key={`${question.id}-row-${rowIndex}`}>{item}</li>
+                  ))}
+                </ol>
+              </div>
             )}
             <ul className="mt-3 space-y-2">
               {(question.options ?? []).map((option, optionIndex) => (
@@ -131,6 +210,28 @@ export function QuestionnaireEditor({
           </article>
         );
       })}
+      {derived.length > 0 && (
+        <section className="rounded-lg border border-line bg-surface p-4 shadow-sm">
+          <h3 className="text-sm font-medium text-ink">Derived variables ({derived.length})</h3>
+          <p className="mt-1 text-xs text-muted">Hidden and classification variables the questionnaire defines. Respondents do not see them.</p>
+          <dl className="mt-3 space-y-2 text-sm">
+            {derived.map((variable) => (
+              <div key={variable.id}>
+                <dt className="font-medium text-ink-2">{variable.id}{variable.label ? ` - ${variable.label}` : ""}</dt>
+                <dd className="whitespace-pre-line text-ink">{variable.definition}</dd>
+                {(variable.values ?? []).length > 0 && (
+                  <dd className="mt-1 rounded border border-line bg-sunken px-3 py-1">
+                    <LogicList lines={derivedLines(variable, catalog)} />
+                  </dd>
+                )}
+                {(variable.unresolved ?? []).map((item, itemIndex) => (
+                  <dd key={itemIndex} className="text-warn">To-do: {item}</dd>
+                ))}
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
       {issues.filter((issue) => !issue.question_id).map((issue) => (
         <p key={issue.code} className="rounded border border-warn-line bg-warn-soft px-3 py-2 text-sm text-warn">{issue.message}</p>
       ))}

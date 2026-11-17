@@ -3,7 +3,7 @@
 import re
 import xml.etree.ElementTree as ET
 
-from app.engines.decipher_expr import safe_label
+from app.engines.decipher_expr import col_labels, safe_label
 from app.engines.decipher_markup import (
     SurveyBuild,
     _comment_body,
@@ -16,6 +16,7 @@ from app.engines.decipher_markup import (
     _titles,
     _warn,
     add_element,
+    spec_of,
 )
 from app.schemas.decipher import CoverageItem, Punch
 from app.schemas.questionnaire import Question
@@ -90,12 +91,59 @@ def _choice(parent: ET.Element, question: Question, build: SurveyBuild) -> Cover
         Coverage item.
     """
     multi = question.type == "multi_select"
+    spec = spec_of(question)
+    if spec.dropdown and not multi:
+        return _dropdown(parent, question, build)
     node = _question_element(parent, "checkbox" if multi else "radio", question, build)
     if multi and question.required:
-        node.set("atleast", "1")
-    punches = _option_rows(node, question)
+        node.set("atleast", str(spec.min_choices or 1))
+    if multi and spec.max_choices:
+        node.set("atmost", str(spec.max_choices))
+    punches = _option_rows(node, question, build, values=not multi)
     _terms_and_gotos(parent, question, build, punches)
     return _item(question, build, "checkbox" if multi else "radio", "programmed", [], punches)
+
+
+def _dropdown(parent: ET.Element, question: Question, build: SurveyBuild) -> CoverageItem:
+    """A single choice shown as a drop-down list (Decipher select with choices)."""
+    node = _question_element(parent, "select", question, build)
+    labels = build.rows.get(question.id, {})
+    punches: list[Punch] = []
+    for index, option in enumerate(question.options, start=1):
+        label = labels.get(str(option.code), f"ch{index}")
+        code = str(option.code)
+        add_element(
+            node,
+            "choice",
+            option.label,
+            label=label,
+            value=code if code.lstrip("-").isdigit() else None,
+        )
+        punches.append(Punch(code=code, label=option.label, row_label=label))
+    _terms_and_gotos(parent, question, build, punches)
+    return _item(question, build, "select", "programmed", [], punches)
+
+
+def _boxes(node: ET.Element, question: Question, build: SurveyBuild) -> list[Punch]:
+    """Separate entry boxes (r1..rN) filled in order; the first one is required."""
+    count = spec_of(question).boxes or 0
+    if count < 2:
+        return []
+    name = build.labels[question.id]
+    punches = []
+    for index in range(1, count + 1):
+        add_element(node, "row", "", label=f"r{index}")
+        punches.append(Punch(code=str(index), label=f"Box {index}", row_label=f"r{index}"))
+    add_element(
+        node,
+        "validate",
+        f"for i in range(1, len({name}.rows)):\n"
+        f"    if {name}.rows[i].val not in (None, '') and {name}.rows[i - 1].val in (None, ''):\n"
+        '        error("Please fill in the boxes in order.")\n'
+        f"if {name}.rows[0].val in (None, ''):\n"
+        '    error("Please provide an answer.")\n',
+    )
+    return punches
 
 
 def _grid(parent: ET.Element, question: Question, build: SurveyBuild) -> CoverageItem:
@@ -109,14 +157,20 @@ def _grid(parent: ET.Element, question: Question, build: SurveyBuild) -> Coverag
     Returns:
         Coverage item.
     """
-    node = _question_element(parent, "radio", question, build)
+    tag = "checkbox" if spec_of(question).multiple else "radio"
+    node = _question_element(parent, tag, question, build)
+    if tag == "checkbox" and question.required:
+        node.set("atleast", "1")
     punches: list[Punch] = []
-    for index, option in enumerate(question.options, start=1):
-        label = f"c{index}"
-        add_element(node, "col", option.label, label=label)
-        punches.append(Punch(code=str(option.code), label=option.label, row_label=label))
+    columns = col_labels(question.options)
+    for option in question.options:
+        code = str(option.code)
+        label, value = columns[code]
+        add_element(node, "col", option.label, label=label, value=value)
+        punches.append(Punch(code=code, label=option.label, row_label=label))
+    row_names = build.rows.get(question.id, {})
     for index, item in enumerate(question.matrix_items, start=1):
-        label = f"r{index}"
+        label = row_names.get(str(index), f"r{index}")
         add_element(node, "row", item, label=label)
         punches.append(Punch(code=str(index), label=item, row_label=label))
     warnings: list[str] = []
@@ -128,7 +182,7 @@ def _grid(parent: ET.Element, question: Question, build: SurveyBuild) -> Coverag
         )
         _warn(build, warnings[-1])
     _terms_and_gotos(parent, question, build, punches)
-    return _item(question, build, "radio", status, warnings, punches)
+    return _item(question, build, tag, status, warnings, punches)
 
 
 def _numeric(parent: ET.Element, question: Question, build: SurveyBuild) -> CoverageItem:
@@ -142,9 +196,58 @@ def _numeric(parent: ET.Element, question: Question, build: SurveyBuild) -> Cove
     Returns:
         Coverage item.
     """
-    _question_element(parent, "number", question, build, size="5")
-    _terms_and_gotos(parent, question, build, [])
-    return _item(question, build, "number", "programmed", [], [])
+    spec = spec_of(question)
+    node = _question_element(
+        parent,
+        "number",
+        question,
+        build,
+        size=_number_size(spec.max_value),
+        verify=_verify(spec.min_value, spec.max_value),
+        amount=_whole(spec.total),
+        **({"ss:listDisplay": "0"} if _rows_of(question) else {}),
+    )
+    punches = (
+        _option_rows(node, question, build) if _rows_of(question) else _boxes(node, question, build)
+    )
+    if not _rows_of(question):
+        for code in spec.noanswer_codes:
+            option = next((o for o in question.options if str(o.code) == str(code)), None)
+            if option is not None:
+                label = build.rows.get(question.id, {}).get(str(code), f"r{code}")
+                add_element(node, "noanswer", option.label, label=label)
+                punches.append(Punch(code=str(code), label=option.label, row_label=label))
+    _terms_and_gotos(parent, question, build, punches)
+    return _item(question, build, "number", "programmed", [], punches)
+
+
+def _rows_of(question: Question) -> bool:
+    """Whether a number question asks for one number per option (not only a no-answer box)."""
+    noanswer = {str(code) for code in spec_of(question).noanswer_codes}
+    return any(str(option.code) not in noanswer for option in question.options)
+
+
+def _verify(low: float | None, high: float | None) -> str | None:
+    """Decipher range check, such as range(0,999)."""
+    if low is None and high is None:
+        return None
+    low_text = _whole(low) if low is not None else "0"
+    high_text = _whole(high) if high is not None else "999999999"
+    return f"range({low_text},{high_text})"
+
+
+def _whole(value: float | None) -> str | None:
+    """A number without a trailing .0."""
+    if value is None:
+        return None
+    return str(int(value)) if float(value).is_integer() else str(value)
+
+
+def _number_size(high: float | None) -> str:
+    """Box width that fits the largest allowed number."""
+    if high is None:
+        return "5"
+    return str(max(2, len(str(int(abs(high)))) + 1))
 
 
 def _textarea(parent: ET.Element, question: Question, build: SurveyBuild) -> CoverageItem:
@@ -158,9 +261,26 @@ def _textarea(parent: ET.Element, question: Question, build: SurveyBuild) -> Cov
     Returns:
         Coverage item.
     """
-    _question_element(parent, "textarea", question, build)
-    _terms_and_gotos(parent, question, build, [])
-    return _item(question, build, "textarea", "programmed", [], [])
+    spec = spec_of(question)
+    tag = "text" if spec.single_line or (spec.boxes or 0) > 1 else "textarea"
+    node = _question_element(parent, tag, question, build, size="50" if tag == "text" else None)
+    punches: list[Punch] = _boxes(node, question, build)
+    for code in spec.noanswer_codes:
+        option = next((o for o in question.options if str(o.code) == str(code)), None)
+        if option is not None:
+            label = build.rows.get(question.id, {}).get(str(code), f"r{code}")
+            add_element(node, "noanswer", option.label, label=label)
+            punches.append(Punch(code=str(code), label=option.label, row_label=label))
+    if spec.min_chars:
+        name = build.labels[question.id]
+        add_element(
+            node,
+            "validate",
+            f"if len({name}.val.strip()) lt {spec.min_chars}:\n"
+            f'    error("Please enter at least {spec.min_chars} characters.")\n',
+        )
+    _terms_and_gotos(parent, question, build, punches)
+    return _item(question, build, tag, "programmed", [], punches)
 
 
 def _date(parent: ET.Element, question: Question, build: SurveyBuild) -> CoverageItem:
@@ -204,20 +324,16 @@ def _allocation(parent: ET.Element, question: Question, build: SurveyBuild) -> C
     Returns:
         Coverage item.
     """
-    label = build.labels[question.id]
-    node = _question_element(parent, "number", question, build, size="3")
-    punches = _option_rows(node, question)
+    spec = spec_of(question)
+    total = spec.total if spec.total is not None else 100
+    node = _question_element(parent, "number", question, build, size=_number_size(total))
+    punches = _option_rows(node, question, build)
     warnings: list[str] = []
     status = "programmed"
     if punches:
-        node.set("verify", "range(0,100)")
-        total = " + ".join(f"{label}.{punch.row_label}.ival" for punch in punches)
-        script = (
-            f"total = {total}\n"
-            "if total != 100:\n"
-            '    error("Please make sure the numbers total 100")\n'
-        )
-        add_element(node, "validate", script)
+        node.set("verify", _verify(spec.min_value or 0, spec.max_value or total) or "")
+        node.set("amount", _whole(total) or "100")
+        node.set("ss:listDisplay", "0")
     else:
         status = "partial"
         warnings.append(
@@ -253,7 +369,7 @@ def _rank(parent: ET.Element, question: Question, build: SurveyBuild) -> Coverag
     node.set("minRanks", str(max(positions, 1)))
     if partial:
         node.set("optional", "1")
-    punches = _option_rows(node, question)
+    punches = _option_rows(node, question, build)
     for index in range(1, positions + 1):
         add_element(node, "choice", str(index), label=f"ch{index}")
     warnings: list[str] = []

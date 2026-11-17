@@ -63,5 +63,7 @@ def unseal(settings: Settings, blob: str) -> dict[str, Any]:
     try:
         return json.loads(Fernet(_key(settings)).decrypt(blob.encode()))
     except (InvalidToken, ValueError):
-        logger.warning("Stored connector credentials could not be decrypted; reconnect the connector.")
+        logger.warning(
+            "Stored connector credentials could not be decrypted; reconnect the connector."
+        )
         return {}

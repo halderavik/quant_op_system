@@ -4,10 +4,10 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from app.engines.sow import extract_brief_bytes
 from app.errors import AppError
 from app.models import StoredFile
 from app.repositories.records import FileRepository
+from app.services.questionnaire_import import StudyFile, render_file
 from app.services.storage import Storage
 
 _STUDY_SUFFIXES = {".docx", ".pdf", ".txt", ".md"}
@@ -33,12 +33,9 @@ def questionnaire_prompt(
     Returns:
         Prompt text and the filenames included in it. SPSS and Excel files are omitted.
     """
-    rows = _study_rows(db, project_id, file_ids or [])
-    sections: list[tuple[str, str]] = []
-    for row in rows:
-        payload = storage.read_bytes(project_id, row.storage_relpath)
-        brief = extract_brief_bytes(payload, row.filename)
-        sections.append((row.filename, brief.text))
+    sections = [
+        (item.filename, item.text) for item in study_files(db, storage, project_id, file_ids)
+    ]
     if not sections:
         return user_text, []
     body, names = _bounded(sections)
@@ -48,6 +45,36 @@ def questionnaire_prompt(
         f"User request:\n{user_text}"
     )
     return prompt, names
+
+
+def study_files(
+    db: Session,
+    storage: Storage,
+    project_id: str,
+    file_ids: list[str] | None = None,
+) -> list[StudyFile]:
+    """Render the study documents a questionnaire request can use.
+
+    Args:
+        db: Session.
+        storage: Project storage.
+        project_id: Project id.
+        file_ids: Explicit attachments. An empty list uses the project's documents.
+
+    Returns:
+        Files oldest first, so the newest upload is last. Word files keep list
+        numbers and table cells.
+    """
+    rows = _study_rows(db, project_id, file_ids or [])
+    if not file_ids:
+        rows = list(reversed(rows))  # Reason: the project list is newest first.
+    return [
+        StudyFile(
+            row.filename,
+            render_file(storage.read_bytes(project_id, row.storage_relpath), row.filename),
+        )
+        for row in rows
+    ]
 
 
 def _study_rows(db: Session, project_id: str, file_ids: list[str]) -> list[StoredFile]:

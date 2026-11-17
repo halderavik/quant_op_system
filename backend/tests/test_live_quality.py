@@ -91,9 +91,13 @@ def test_programming_adds_tracking_when_enabled(client: TestClient) -> None:
     assert renamed["survey_id"] == "Live Check" and renamed["name_id"] == "Renamed Study"
     # Switching to the new name takes effect at the next programming.
     switched = client.put(
-        f"/api/projects/{project['id']}/live-quality", json={"enabled": True, "use_project_name": True}
+        f"/api/projects/{project['id']}/live-quality",
+        json={"enabled": True, "use_project_name": True},
     ).json()
-    assert switched["survey_id"] == "Renamed Study" and switched["decipher"]["tracking_in_xml"] is False
+    assert (
+        switched["survey_id"] == "Renamed Study"
+        and switched["decipher"]["tracking_in_xml"] is False
+    )
 
 
 def test_programming_without_tracking_is_unchanged(client: TestClient) -> None:
@@ -102,7 +106,8 @@ def test_programming_without_tracking_is_unchanged(client: TestClient) -> None:
     client.post(f"/api/projects/{project['id']}/questionnaires", json=QUESTIONNAIRE)
     client.post(f"/api/projects/{project['id']}/questionnaires/decipher")
     decipher = next(
-        item for item in client.get(f"/api/projects/{project['id']}/artifacts").json()
+        item
+        for item in client.get(f"/api/projects/{project['id']}/artifacts").json()
         if item["type"] == "decipher_survey"
     )
     assert "respview.client.js" not in decipher["latest"]["content"]["xml"]
@@ -113,30 +118,58 @@ def test_summary_counts_match_rows() -> None:
     detailed = {
         "respondents": [
             {
-                "session_id": "s1", "respondent_id": "R-1", "created_at": "2026-11-16T10:00:00+00:00",
-                "last_activity": "2026-11-16T10:03:00+00:00", "is_bot": True, "confidence_score": 0.9,
-                "risk_level": "HIGH", "flagged_text_responses": 1, "timing_speeder": True,
+                "session_id": "s1",
+                "respondent_id": "R-1",
+                "created_at": "2026-11-16T10:00:00+00:00",
+                "last_activity": "2026-11-16T10:03:00+00:00",
+                "is_bot": True,
+                "confidence_score": 0.9,
+                "risk_level": "HIGH",
+                "flagged_text_responses": 1,
+                "timing_speeder": True,
                 "text_responses_of_interest": [
-                    {"question_preview": "Why?", "response_preview": "asdf", "quality_score": 5,
-                     "is_flagged": True, "flag_reasons": {"gibberish": {"is_gibberish": True}}}
+                    {
+                        "question_preview": "Why?",
+                        "response_preview": "asdf",
+                        "quality_score": 5,
+                        "is_flagged": True,
+                        "flag_reasons": {"gibberish": {"is_gibberish": True}},
+                    }
                 ],
             },
             {
-                "session_id": "s2", "respondent_id": "R-2", "created_at": "2026-11-16T10:05:00+00:00",
-                "last_activity": "2026-11-16T10:06:00+00:00", "is_bot": False, "confidence_score": 0.1,
+                "session_id": "s2",
+                "respondent_id": "R-2",
+                "created_at": "2026-11-16T10:05:00+00:00",
+                "last_activity": "2026-11-16T10:06:00+00:00",
+                "is_bot": False,
+                "confidence_score": 0.1,
                 "risk_level": "LOW",
             },
             {
-                "session_id": "s3", "respondent_id": "R-3", "created_at": "2020-01-01T00:00:00+00:00",
-                "last_activity": "2020-01-01T00:01:00+00:00", "risk_level": "unknown",
+                "session_id": "s3",
+                "respondent_id": "R-3",
+                "created_at": "2020-01-01T00:00:00+00:00",
+                "last_activity": "2020-01-01T00:01:00+00:00",
+                "risk_level": "unknown",
             },
         ]
     }
-    result = live_quality.summarize("QOS-X", {"text_quality_summary": {"total_responses": 3}}, detailed)
+    result = live_quality.summarize(
+        "QOS-X", {"text_quality_summary": {"total_responses": 3}}, detailed
+    )
     totals = result["totals"]
     assert totals == {
-        "sessions": 3, "in_progress": 0, "checked": 2, "dropped": 1, "bots": 1, "flagged": 1,
-        "duplicates": 0, "speeders": 0, "straight_liners": 0, "low_quality_text": 1,
+        "sessions": 3,
+        "in_progress": 0,
+        "checked": 2,
+        "dropped": 1,
+        "bots": 1,
+        "flagged": 1,
+        "duplicates": 0,
+        "speeders": 0,
+        "straight_liners": 0,
+        "low_quality_text": 1,
     }
     first = result["respondents"][0]
     assert first["session_id"] == "s2" and first["verdict"] == "human"
@@ -144,7 +177,10 @@ def test_summary_counts_match_rows() -> None:
     # The service's per-answer timing_speeder is ignored; speeders come from page times.
     assert bot["flags"] == ["Bot-like behaviour", "Low-quality open ends"]
     assert bot["text_details"][0]["reasons"] == ["gibberish"]
-    assert next(row for row in result["respondents"] if row["session_id"] == "s3")["verdict"] == "pending"
+    assert (
+        next(row for row in result["respondents"] if row["session_id"] == "s3")["verdict"]
+        == "pending"
+    )
 
 
 async def test_results_read_both_reports(monkeypatch: pytest.MonkeyPatch, settings) -> None:
@@ -159,7 +195,9 @@ async def test_results_read_both_reports(monkeypatch: pytest.MonkeyPatch, settin
 
     real = httpx.AsyncClient
     monkeypatch.setattr(
-        live_quality.httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(_handler))
+        live_quality.httpx,
+        "AsyncClient",
+        lambda **kwargs: real(transport=httpx.MockTransport(_handler)),
     )
     live_quality._CACHE.clear()
     result = await live_quality.live_results(settings, "QOS-Y-1")
@@ -229,10 +267,18 @@ def test_csv_has_one_row_per_respondent() -> None:
     detailed = {
         "respondents": [
             {
-                "session_id": "s1", "respondent_id": "R-1", "created_at": "2026-11-16T10:00:00+00:00",
-                "risk_level": "LOW", "flagged_text_responses": 1,
+                "session_id": "s1",
+                "respondent_id": "R-1",
+                "created_at": "2026-11-16T10:00:00+00:00",
+                "risk_level": "LOW",
+                "flagged_text_responses": 1,
                 "text_responses_of_interest": [
-                    {"question_preview": "Why?", "response_preview": "xx", "quality_score": 0, "is_flagged": True}
+                    {
+                        "question_preview": "Why?",
+                        "response_preview": "xx",
+                        "quality_score": 0,
+                        "is_flagged": True,
+                    }
                 ],
             }
         ]
@@ -246,7 +292,9 @@ def test_csv_has_one_row_per_respondent() -> None:
 def test_behaviour_risk_follows_the_score() -> None:
     """A low bot score is low risk, whatever label the service sent."""
     row = live_quality.summarize(
-        "S", {}, {"respondents": [{"session_id": "a", "risk_level": "high", "confidence_score": 0.12}]}
+        "S",
+        {},
+        {"respondents": [{"session_id": "a", "risk_level": "high", "confidence_score": 0.12}]},
     )["respondents"][0]
     assert row["risk"] == "low" and row["service_risk"] == "high"
     assert live_quality.behaviour_risk(0.75) == "high"
@@ -255,17 +303,31 @@ def test_behaviour_risk_follows_the_score() -> None:
 
 def test_pasted_answers_get_their_own_flag() -> None:
     """A pasted but sensible answer is flagged as pasted, not as low quality."""
+
     def row(reasons):
         return {
-            "session_id": "s", "respondent_id": "R", "created_at": "2026-11-16T10:00:00+00:00",
-            "is_bot": False, "confidence_score": 0.1, "flagged_text_responses": 1,
+            "session_id": "s",
+            "respondent_id": "R",
+            "created_at": "2026-11-16T10:00:00+00:00",
+            "is_bot": False,
+            "confidence_score": 0.1,
+            "flagged_text_responses": 1,
             "text_responses_of_interest": [
-                {"question_preview": "Why?", "response_preview": "A long pasted answer.", "quality_score": 80,
-                 "is_flagged": True, "flag_reasons": reasons}
+                {
+                    "question_preview": "Why?",
+                    "response_preview": "A long pasted answer.",
+                    "quality_score": 80,
+                    "is_flagged": True,
+                    "flag_reasons": reasons,
+                }
             ],
         }
 
-    pasted = live_quality.summarize("S", {}, {"respondents": [row({"pasted": {"pasted_chars": 90}})]})["respondents"][0]
+    pasted = live_quality.summarize(
+        "S", {}, {"respondents": [row({"pasted": {"pasted_chars": 90}})]}
+    )["respondents"][0]
     assert pasted["flags"] == ["Pasted answers"]
-    both = live_quality.summarize("S", {}, {"respondents": [row({"pasted": {}, "generic": {}})]})["respondents"][0]
+    both = live_quality.summarize("S", {}, {"respondents": [row({"pasted": {}, "generic": {}})]})[
+        "respondents"
+    ][0]
     assert both["flags"] == ["Low-quality open ends", "Pasted answers"]

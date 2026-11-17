@@ -126,6 +126,13 @@ _DECIPHER_REQUEST = re.compile(
     r"\bdecipher\b|\bsurvey xml\b|\bprogram(?:me)? (?:this |the )?survey\b",
     re.I,
 )
+# Reason: "use this questionnaire" with an attached file imports it; the route model
+# sometimes reads the short message as a note.
+_USE_QUESTIONNAIRE = re.compile(
+    r"^\s*(?:please\s+)?(?:use|import|load|take|upload|work from|start from)\b[^.?!]{0,40}"
+    r"\b(?:questionnaire|survey|instrument|document|file|docx)\b",
+    re.I,
+)
 _SAMPLE_REQUEST = re.compile(
     r"\bprolific\b|"
     r"\b(?:buy|recruit|purchase)\b.{0,40}\b(?:respondents?|participants?|sample)\b|"
@@ -564,7 +571,7 @@ def product_lock(text: str) -> str | None:
         return "generate_synthetic"
     if _DECIPHER_REQUEST.search(lowered):
         return "program_decipher"
-    if _is_study_brief(lowered):
+    if _is_study_brief(lowered) or _USE_QUESTIONNAIRE.search(text):
         return "create_questionnaire"
     if _BLOCKED.search(text):
         return "run_analysis"

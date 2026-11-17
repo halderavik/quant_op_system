@@ -16,6 +16,8 @@ export type QuestionDraft = {
   instruction?: string;
   programmer_notes?: string[];
   options?: OptionDraft[];
+  matrix_items?: string[];
+  programming?: Record<string, unknown> | null;
 };
 
 export type TableDraft = {

@@ -192,8 +192,14 @@ def add_custom(
 
 
 def update_settings(
-    db: Session, row: ConnectorAccount, *, server_url: str | None, scopes: list[str] | None,
-    tenant_id: str | None, token: str | None, settings: Settings,
+    db: Session,
+    row: ConnectorAccount,
+    *,
+    server_url: str | None,
+    scopes: list[str] | None,
+    tenant_id: str | None,
+    token: str | None,
+    settings: Settings,
 ) -> ConnectorAccount:
     """Change an account's endpoint, scopes, tenant, or token.
 

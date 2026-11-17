@@ -110,7 +110,11 @@ def project_files(db: Session, project_id: str) -> list[dict[str, str]]:
                 continue
             seen.add(file_id)
             listed.append(
-                {"file_id": row.id, "name": row.filename, "from": f"{artifact.type}: {artifact.name}"}
+                {
+                    "file_id": row.id,
+                    "name": row.filename,
+                    "from": f"{artifact.type}: {artifact.name}",
+                }
             )
     for row in files.list_project(project_id):
         if row.id not in seen and row.storage_relpath.startswith("uploads/"):
@@ -194,7 +198,9 @@ def _facts(db: Session, project_id: str) -> dict[str, Any]:
         facts["objectives"] = objectives
     report = ArtifactRepository(db).latest_of_type(project_id, "report")
     if report is not None:
-        slides = [slide for slide in (report.content or {}).get("slides", []) if isinstance(slide, dict)]
+        slides = [
+            slide for slide in (report.content or {}).get("slides", []) if isinstance(slide, dict)
+        ]
         takeaways = next(
             (
                 slide.get("bullets")
@@ -215,9 +221,7 @@ def _facts(db: Session, project_id: str) -> dict[str, Any]:
     return facts
 
 
-def resolve_files(
-    db: Session, storage: Storage, project_id: str, value: Any
-) -> Any:
+def resolve_files(db: Session, storage: Storage, project_id: str, value: Any) -> Any:
     """Replace file placeholders in tool arguments with file content.
 
     Args:
@@ -273,7 +277,9 @@ def _file_bytes(
     if row.project_id != project_id:
         raise AppError("That file belongs to another project.", "connector_file")
     if row.size_bytes > _MAX_FILE_BYTES:
-        raise AppError(f"{row.filename} is too large to send through a connector.", "connector_file")
+        raise AppError(
+            f"{row.filename} is too large to send through a connector.", "connector_file"
+        )
     return row.filename, row.media_type, storage.read_bytes(project_id, row.storage_relpath)
 
 
@@ -327,7 +333,9 @@ def _save_import(
         from app.services.execute import ingest_spss
 
         dataset = ingest_spss(db, storage, settings, project_id, row.id)
-        return f"Saved {name} to the project and loaded it as the dataset ({dataset.row_count} rows)."
+        return (
+            f"Saved {name} to the project and loaded it as the dataset ({dataset.row_count} rows)."
+        )
     return f"Saved {name} to the project."
 
 
@@ -392,7 +400,9 @@ async def run_connector_request(
             break
         for call in plan.calls:
             row = by_id.get(call.connector_id)
-            tool = next((item for item in (row.tools if row else []) if item["name"] == call.tool), None)
+            tool = next(
+                (item for item in (row.tools if row else []) if item["name"] == call.tool), None
+            )
             if row is None or tool is None:
                 history.append({"call": call.model_dump(), "error": "Unknown connector or tool."})
                 continue
@@ -402,7 +412,9 @@ async def run_connector_request(
                 history.append({"call": call.model_dump(), "error": "arguments_json is not JSON."})
                 continue
             if not isinstance(arguments, dict):
-                history.append({"call": call.model_dump(), "error": "arguments_json must be an object."})
+                history.append(
+                    {"call": call.model_dump(), "error": "arguments_json must be an object."}
+                )
                 continue
             if not client.is_read_only(tool):
                 queued.append(
@@ -414,7 +426,10 @@ async def run_connector_request(
                 resolved = resolve_files(db, storage, project_id, arguments)
                 token = await store.token_for(db, settings, row)
                 outcome = await client.call_tool(
-                    store.url_for(settings, row), token, call.tool, resolved,
+                    store.url_for(settings, row),
+                    token,
+                    call.tool,
+                    resolved,
                     timeout=settings.connector_timeout_seconds,
                 )
             except AppError as exc:
@@ -551,7 +566,10 @@ async def approve(
         arguments = resolve_files(db, storage, action.project_id, action.arguments)
         token = await store.token_for(db, settings, row)
         outcome = await client.call_tool(
-            store.url_for(settings, row), token, action.tool, arguments,
+            store.url_for(settings, row),
+            token,
+            action.tool,
+            arguments,
             timeout=settings.connector_timeout_seconds,
         )
     except AppError as exc:

@@ -103,7 +103,7 @@ def test_compiler_programs_structured_questions() -> None:
     assert brands.get("atleast") == "1"
     assert brands.get("shuffle") == "rows"
     assert brands.get("cond") == "S1.r2"
-    other = brands.find("./row[@label='r2']")
+    other = brands.find("./row[@label='r98']")
     assert other is not None
     assert other.get("exclusive") == "1"
     assert other.get("open") == "1"
@@ -116,7 +116,7 @@ def test_compiler_programs_structured_questions() -> None:
     assert root.find("./number[@label='Q3']").get("cond") == "not (Qskip.r1)"
     assert root.find("./textarea[@label='Q4']").get("cond") is None
     q1 = next(item for item in result.items if item.question_id == "Q1")
-    assert any(punch.code == "98" and punch.row_label == "r2" for punch in q1.punches)
+    assert any(punch.code == "98" and punch.row_label == "r98" for punch in q1.punches)
     assert "Adults 18+" in result.xml
 
 
@@ -164,7 +164,7 @@ def test_partial_types_warn_without_inventing_structure() -> None:
     rank = root.find(".//select[@label='Q3']")
     assert rank.get("unique") == "none,cols"
     assert rank.get("uses") == "ranksort.7"
-    assert "total != 100" in result.xml
+    assert 'amount="100"' in result.xml
     assert any("loop body is empty" in warning for warning in result.warnings)
     assert any("calendar" in warning for warning in result.warnings)
     assert not any("Q3" in warning for warning in result.warnings)

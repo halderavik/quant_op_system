@@ -239,3 +239,29 @@ class ConnectorAction(Base):
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ProgrammingLesson(Base):
+    """A rule learned from a person correcting planned survey logic before it was programmed.
+
+    Rows hold questionnaire instructions and logic only, never respondent data.
+    """
+
+    __tablename__ = "programming_lessons"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # Reason: active lessons guide planning; disabled ones are kept for the record.
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    # Reason: "extraction" lessons teach reading the questionnaire file; "programming" ones the logic.
+    stage: Mapped[str] = mapped_column(String(20), default="programming", index=True)
+    rule: Mapped[str] = mapped_column(Text)
+    rule_key: Mapped[str] = mapped_column(String(200), index=True)
+    field: Mapped[str] = mapped_column(String(60), default="")
+    question_type: Mapped[str] = mapped_column(String(40), default="")
+    example_instruction: Mapped[str] = mapped_column(Text, default="")
+    example_before: Mapped[dict] = mapped_column(JSON, default=dict)
+    example_after: Mapped[dict] = mapped_column(JSON, default=dict)
+    support: Mapped[int] = mapped_column(Integer, default=1)
+    source_project_id: Mapped[str] = mapped_column(String(36), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

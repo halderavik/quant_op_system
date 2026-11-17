@@ -359,8 +359,22 @@ class Orchestrator:
 
                 # Reason: asking for bot or fraud detection in the survey turns tracking on first.
                 set_tracking(db, task.project_id, True)
+            fixed = await self._plan_program(db, task)
             self._event(db, task, "running", {"message": "Programming the Decipher survey"})
-            return program_decipher_survey(db, self.storage, task.project_id, self.settings)
+            outcome = program_decipher_survey(db, self.storage, task.project_id, self.settings)
+            if fixed is not None:
+                outcome["summary"] = (
+                    "Turned the questionnaire's written instructions into survey logic and "
+                    f"checked the XML against them ({fixed} finding(s) fixed during review). "
+                    + outcome["summary"]
+                )
+            learned = await self._learn_from_approval(db, task)
+            if learned:
+                outcome["summary"] += (
+                    f" Learned {learned} rule(s) from your corrections; future questionnaires "
+                    "will be planned with them."
+                )
+            return outcome
         if contract.intent == "buy_sample":
             from app.services.sample_launch import launch_sample, transition_sample
             from app.services.sample_quote import quote_from_message, sample_action
@@ -442,6 +456,9 @@ class Orchestrator:
             )
             return _with_logic_note(outcome, repairs)
         if contract.intent == "create_questionnaire":
+            imported = await self._import_questionnaire(db, task, text, file_ids)
+            if imported is not None:
+                return imported
             self._event(db, task, "running", {"message": "Drafting the instrument"})
             prompt, sources = questionnaire_prompt(
                 db, self.storage, task.project_id, text, file_ids
@@ -631,6 +648,163 @@ class Orchestrator:
         ProjectRepository(db).add_message(
             task.conversation_id, "assistant", content, task_id=task.id
         )
+
+    async def _learn_from_approval(self, db: Session, task: Task) -> int:
+        """Store rules from what the person changed in the planned logic before programming.
+
+        Args:
+            db: Session.
+            task: Task row.
+
+        Returns:
+            How many rules were created or confirmed.
+        """
+        from app.learning.lessons import learn_from_approval
+
+        current = ArtifactRepository(db).latest_of_type(task.project_id, "questionnaire")
+        if current is None:
+            return 0
+        session_id = ProjectRepository(db).conversation(task.conversation_id).sdk_session_id
+        return await learn_from_approval(
+            db,
+            self.settings,
+            task.project_id,
+            current.artifact_id,
+            Questionnaire.model_validate(current.content),
+            session_id,
+        )
+
+    async def _plan_program(self, db: Session, task: Task) -> int | None:
+        """Plan and review the programming of a questionnaire that has written instructions only.
+
+        Args:
+            db: Session.
+            task: Task row.
+
+        Returns:
+            How many review findings were fixed, or None when no planning was needed.
+        """
+        current = ArtifactRepository(db).latest_of_type(task.project_id, "questionnaire")
+        if current is None:
+            return None
+        document = Questionnaire.model_validate(current.content)
+        if any(question.programming is not None for question in document.questions):
+            return None
+        if not any(question.programmer_notes for question in document.questions):
+            return None
+        if not self.settings.llm_configured:
+            return None
+        from app.learning.lessons import active_lessons
+        from app.services.program_review import build_reviewed_program
+
+        session_id = ProjectRepository(db).conversation(task.conversation_id).sdk_session_id
+        lessons = active_lessons(db)
+        self._release(db)
+        planned, _program, fixed = await build_reviewed_program(
+            self.settings,
+            document,
+            session_id=session_id,
+            on_stage=lambda message: self._event(db, task, "running", {"message": message}),
+            lessons=lessons,
+        )
+        save_questionnaire(
+            db,
+            task.project_id,
+            planned,
+            created_by="decipher_planner",
+            summary="Added programming logic worked out from the written instructions.",
+        )
+        return fixed
+
+    async def _import_questionnaire(
+        self, db: Session, task: Task, text: str, file_ids: list[str] | None
+    ) -> dict | None:
+        """Save an uploaded questionnaire exactly as written when that is what was asked.
+
+        A single questionnaire file with no brief beside it is imported word for
+        word unless the user asks to use it as a reference.
+
+        Args:
+            db: Session.
+            task: Task row.
+            text: User message.
+            file_ids: Attached file ids.
+
+        Returns:
+            The save outcome, or None to draft with the files as a reference.
+        """
+        from app.services.questionnaire_import import choose_mode, import_exact
+        from app.services.study_materials import study_files
+
+        files = study_files(db, self.storage, task.project_id, file_ids)
+        mode, study = choose_mode(text, files)
+        if mode != "exact" or study is None:
+            return None
+        self._event(db, task, "running", {"message": f"Importing {study.filename} as written"})
+        from app.learning.lessons import active_lessons, learn_from_import
+
+        session_id = ProjectRepository(db).conversation(task.conversation_id).sdk_session_id
+        reading_lessons = active_lessons(db, stage="extraction")
+        self._release(db)
+        corrections: list[dict] = []
+        document = await import_exact(
+            self.settings,
+            study,
+            session_id=session_id,
+            on_stage=lambda message: self._event(db, task, "running", {"message": message}),
+            lessons=reading_lessons,
+            corrections=corrections,
+        )
+        # Reason: a part read wrongly and fixed on the retry teaches how to read that layout.
+        await learn_from_import(db, self.settings, task.project_id, corrections, session_id)
+        checked = document.source.checked_items if document.source else 0
+        logic_note = ""
+        if self.settings.llm_configured and any(
+            question.programmer_notes for question in document.questions
+        ):
+            # Reason: the reviewer checks the logic the system understood before anything is
+            # programmed, so planning runs now instead of at "program in Decipher".
+            from app.learning.lessons import active_lessons
+            from app.services.program_review import build_reviewed_program
+
+            document, _program, _fixed = await build_reviewed_program(
+                self.settings,
+                document,
+                session_id=session_id,
+                on_stage=lambda message: self._event(db, task, "running", {"message": message}),
+                lessons=active_lessons(db),
+            )
+            todos = sum(
+                len(question.programming.unresolved)
+                for question in document.questions
+                if question.programming
+            )
+            logic_note = (
+                " The programming instructions were turned into survey logic; review each "
+                "question's logic in the questionnaire panel"
+                + (f" ({todos} item(s) need a programmer's decision)" if todos else "")
+                + ", edit anything that is wrong, then ask to program it in Decipher."
+            )
+        outcome = save_questionnaire(
+            db,
+            task.project_id,
+            document,
+            created_by="questionnaire_import",
+            summary=(
+                f"Imported {document.title} from {study.filename} exactly as written: "
+                f"{len(document.questions)} questions"
+                + (
+                    f" and {len(document.derived_variables)} derived variables"
+                    if document.derived_variables
+                    else ""
+                )
+                + f". All {checked} pieces of text, the question order, and the punch codes "
+                "match the file."
+                + logic_note
+                + " To redraft from it instead, ask to use it as a reference."
+            ),
+        )
+        return outcome
 
     async def _accept_questionnaire(
         self, db: Session, task: Task, document: Questionnaire

@@ -48,6 +48,92 @@ class ReportingHint(BaseModel):
     stats: list[str] = Field(default_factory=list)
 
 
+class RowCondition(BaseModel):
+    """Show only the rows answered (or not answered) at an earlier question with the same codes."""
+
+    source: str
+    # "positive" keeps the rows given a number above zero at a numeric source question.
+    mode: Literal["selected", "not_selected", "positive"] = "selected"
+    # For a grid source: the scale code a row must have, such as 1 for "Yes" (qAID[row].c1).
+    column: int | str | None = None
+
+
+class OptionCondition(BaseModel):
+    """Show one option or row only when a condition holds, such as a country-specific brand."""
+
+    code: int | str
+    when: Expr
+
+
+class TerminateRule(BaseModel):
+    """One screen-out. ``immediately`` ends the interview at once; otherwise it waits for the flags."""
+
+    when: Expr
+    immediately: bool = False
+    label: str = ""
+
+
+class AutoFill(BaseModel):
+    """Answer the question in code ("autopunch 0 and do not show") when ``when`` holds, or always."""
+
+    code: int | str
+    when: Expr | None = None
+
+
+class Pipe(BaseModel):
+    """Text in the wording replaced by an earlier answer, such as [INSERT S11]."""
+
+    placeholder: str
+    source: str
+
+
+class Validation(BaseModel):
+    """An error shown when ``error_when`` holds ("C2 cannot exceed C1")."""
+
+    error_when: Expr
+    message: str
+
+
+class ProgrammingSpec(BaseModel):
+    """How a question is programmed, worked out from its written instructions.
+
+    Every field is optional; unset means the Decipher default. ``unresolved`` keeps
+    instructions the structure cannot express, so the programmer sees them.
+    """
+
+    hidden: bool = False
+    min_value: float | None = None
+    max_value: float | None = None
+    total: float | None = None
+    min_chars: int | None = None
+    min_choices: int | None = None
+    max_choices: int | None = None
+    noanswer_codes: list[int | str] = Field(default_factory=list)
+    single_line: bool = False
+    row_condition: RowCondition | None = None
+    option_conditions: list[OptionCondition] = Field(default_factory=list)
+    randomize_columns: bool = False
+    # A grid where each row takes several answers ("select all that apply" per row).
+    multiple: bool = False
+    keep_together: list[list[int | str]] = Field(default_factory=list)
+    same_order_as: str | None = None
+    terminate_when: Expr | None = None
+    terminate_immediately: bool = False
+    # More screen-outs on this question, each with its own timing (under 18 now, 55+ as a flag).
+    terminate_rules: list[TerminateRule] = Field(default_factory=list)
+    autofill: AutoFill | None = None
+    pipes: list[Pipe] = Field(default_factory=list)
+    validations: list[Validation] = Field(default_factory=list)
+    # Codes that get a one-time prompt before they are accepted ("Prefer not to answer":
+    # "Sorry! We need your exact age..."). The respondent can keep the answer on the second try.
+    confirm_codes: list[int | str] = Field(default_factory=list)
+    confirm_message: str = ""
+    # Number of separate entry boxes for a text or number question with no listed rows.
+    boxes: int | None = None
+    dropdown: bool = False
+    unresolved: list[str] = Field(default_factory=list)
+
+
 class Question(BaseModel):
     """One instrument item."""
 
@@ -67,6 +153,9 @@ class Question(BaseModel):
     notes: list[str] = Field(default_factory=list)
     matrix_items: list[str] = Field(default_factory=list)
     unsupported: bool = False
+    programming: ProgrammingSpec | None = None
+    # False when the file gives no punch codes and they were numbered in order on import.
+    codes_from_file: bool | None = None
 
 
 class Objective(BaseModel):
@@ -85,6 +174,41 @@ class Module(BaseModel):
     question_ids: list[str] = Field(default_factory=list)
 
 
+class DerivedValue(BaseModel):
+    """One value of a derived variable and when a respondent gets it."""
+
+    code: int | str
+    label: str
+    # None when the value is assigned rather than computed (least fill, random, panel).
+    when: Expr | None = None
+    # The file marks this group TERMINATE (an age band outside the target, for example).
+    terminate: bool = False
+
+
+class DerivedVariable(BaseModel):
+    """A hidden or classification variable the questionnaire defines, such as a reader segment.
+
+    ``definition`` is the file's wording. ``values`` and ``after`` are the programmed
+    form: the variable is computed after question ``after``.
+    """
+
+    id: str
+    label: str = ""
+    definition: str
+    multiple: bool = False
+    after: str | None = None
+    values: list[DerivedValue] = Field(default_factory=list)
+    unresolved: list[str] = Field(default_factory=list)
+
+
+class QuestionnaireSource(BaseModel):
+    """Where an imported questionnaire came from."""
+
+    mode: Literal["exact", "reference"]
+    filename: str
+    checked_items: int = 0
+
+
 class Questionnaire(BaseModel):
     """Canonical questionnaire document."""
 
@@ -97,6 +221,10 @@ class Questionnaire(BaseModel):
     programming_notes: list[str] = Field(default_factory=list)
     estimated_minutes: float | None = None
     estimated_minutes_note: str = "Heuristic length only. This is not a verified timing study."
+    derived_variables: list[DerivedVariable] = Field(default_factory=list)
+    source: QuestionnaireSource | None = None
+    # Screen-out flags fire after this question unless a terminate is immediate.
+    terminate_after: str | None = None
     schema_version: str = "questionnaire/1"
 
 

@@ -503,3 +503,32 @@ export async function resetQualityRules(projectId: string): Promise<QualityRules
 export async function getLiveResults(projectId: string): Promise<LiveResults> {
   return parse(await fetch(`/api/projects/${projectId}/live-quality/results`));
 }
+
+export type ProgrammingLesson = {
+  id: string;
+  status: "active" | "disabled";
+  stage: "extraction" | "programming";
+  rule: string;
+  field: string;
+  question_type: string;
+  example_instruction: string;
+  example_before: { value?: unknown };
+  example_after: { value?: unknown };
+  support: number;
+  updated_at: string;
+};
+
+export async function listProgrammingLessons(): Promise<ProgrammingLesson[]> {
+  return parse(await fetch("/api/learning/programming-lessons?limit=1000"));
+}
+
+export async function setProgrammingLessonStatus(
+  id: string,
+  status: "active" | "disabled",
+): Promise<{ id: string; status: string }> {
+  return parse(await fetch(`/api/learning/programming-lessons/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  }));
+}

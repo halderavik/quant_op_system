@@ -75,6 +75,43 @@ npm test
 
 `docker compose --profile sandbox run --rm sandbox` only checks that the sandbox image can start. The API uses Docker for generated scripts when the `docker` CLI is on PATH, and otherwise a labelled subprocess fallback.
 
+### Word questionnaires and Decipher programming
+
+**Importing a questionnaire.** Attach a finished questionnaire (`.docx`, PDF, or text) and say "use this questionnaire". With no brief beside it, the file is imported exactly as written; say "use it as a reference" to draft a new one from it instead.
+
+- **Reading the file.** The Word reader keeps automatic list numbers as punch codes, keeps the lines of a table cell apart, and marks red text.
+- **Copying it out.** The file is split at question ids (S1, Q3a, CAT11_US), and each part is copied into the questionnaire in parallel. Programmer instructions are kept word for word as notes.
+- **Checking it against the file.** Every question, answer, grid row, and note must appear in the file word for word. Every question in the file must be present, in the file's order, and punch codes must be the ones the file gives.
+- **When it doesn't match.** Parts that don't match are copied again with the differences listed, up to two more times. If they still don't match, nothing is saved and the differences are shown.
+- **Requirements.** The file needs question ids; a questionnaire with none can only be used as a reference. Images, embedded spreadsheets, and Word comments are not read.
+
+**Programming it.** Asking to program the survey in Decipher first works out the logic when the questionnaire only has written instructions. It saves that as a new questionnaire version, then builds the XML.
+
+1. **Planning the logic.** Bases, piped rows (`rowCond`), number ranges (`verify`), totals (`amount`), minimum characters, select limits, no-answer boxes, row grouping, terminates, and hidden or derived variables (computed in an `exec`) are filled in. The survey-wide rules apply unless a question's notes say otherwise. Terminates are held as flags until the end of the screener when the rules say so. The planner also handles:
+   - named groups used in bases ("BASE: PARENTS"), defined first as hidden variables;
+   - piped text ("[INSERT S11]" becomes `${S11.selected.text}`);
+   - autopunched answers (an `exec` before the question);
+   - cross-question checks ("C2 cannot exceed C1") and one-time prompts before accepting an answer such as "Prefer not to answer" (`<validate>`);
+   - several terminates on one question, each immediate or held as a flag;
+   - several entry boxes filled in order, and drop-downs (`<select>`);
+   - lists copied from another question ("[SHOW Q41 LIST]");
+   - required answers unless a note says not to force one;
+   - unnumbered rating scales coded with the positive end highest.
+
+   Variables the questionnaire leaves to the sample (least fill, panel source) stay as hidden questions with a to-do for the assignment.
+2. **Checking the logic.** References to unknown questions or codes, and bases or terminates written in the notes but not programmed, are planned again with the problem stated.
+3. **Building the XML.** It follows the house style: rows are named by punch code (`r98`, `r99`), scale columns are `c0`–`c10` or carry `value`, and the standard survey settings are applied, including `ss:disableBackButton` with the `ss`/`html` prefixes declared.
+4. **Reviewing it.** A reviewer reads each question's instructions next to its XML and lists anything missing or wrong. Those questions are planned again, for up to two rounds.
+5. **What stays open.** Anything still open, such as quotas, images, ZIP code checks, and sample-source logic, becomes a `PROGRAMMER TODO` comment in the XML and a warning in the result.
+
+**Learning to read questionnaires.** Questionnaires lay out questions, codes, and instructions in many different ways. When a part of a file fails the word-for-word check and the retry reads it correctly, the first mistake is written as a general reading rule (for example "copy inline piping directives inside an option exactly"). Changes people make to wording, types, answer lists, grid rows, or notes before programming become reading rules too. The importer receives the reading rules whose examples resemble the part of the file it is reading, so each questionnaire it reads improves the next. Reading rules never relax the rule to copy the file's words exactly.
+
+**Learned rules page.** The Learned rules button in the sidebar lists every rule, both reading the file and programming logic. It shows the example the rule came from, what was read or planned against what was correct, and how often the rule was confirmed. A wrong rule can be switched off there.
+
+**Learning from corrections.** After import, the questionnaire panel shows each question's planned logic in plain words, with to-dos to review. When the survey is programmed in Decipher, the approved questionnaire is compared with what the system planned. Each change to the logic is written as a general rule (for example "ASK BRANDS AWARE IN <question> means piping rows from that question's Yes column") and stored in `programming_lessons`. A rule seen again gains support. Later plans and reviews receive the rules whose example instructions resemble the notes being planned, plus the most-confirmed ones. Ticking off a to-do is not a correction. Projects with `learning_opt_out` teach nothing. `GET /api/learning/programming-lessons` lists the rules, and `PATCH /api/learning/programming-lessons/{id}` with `{"status": "disabled"}` switches one off. Only questionnaire instructions and logic are stored, never respondent data.
+
+`app/engines/decipher_compare.py` scores a generated survey against a reference XML question by question: type, rows, columns, show-if, row piping, range, total, and shuffle.
+
 ## Known limits
 
 - Unweighted crosstabs use a two-tailed unpooled z-test within each banner group, not against Total and not across groups. Uppercase letters are 95% and lowercase letters are 90%. A column below the table minimum base is marked `.`. Newly generated plans use 20 as that minimum and flag bases of 20–29 as `*low base`. Weighted tables do not receive letters.
@@ -84,7 +121,7 @@ npm test
 - A Prolific sample price uses `PROLIFIC_API_KEY` from the server. The panel shows the audience, planned quota cells, eligibility, reward, total, and balance. The model does not type the price. Publishing locks that total only after the user confirms it, and only when the Decipher survey URL exists, the balance covers the new total, and screen-out pay is accepted. Pause, resume, and stop stay on that panel. Other panel vendors are not connected.
 - Unknown Excel tab-spec layouts are previewed and blocked when the mapping is ambiguous.
 - MaxDiff and conjoint are refused.
-- Questionnaire drafting calls the OpenAI Agents SDK. An uploaded DOCX, PDF, TXT, or Markdown file in the project is included as study material, and Word tables are part of that text. Open-end classification and codeframe proposals call Claude when `MODEL_CODING` starts with `claude`. Numeric results do not.
+- Questionnaire drafting, importing, Decipher logic planning, and the program review use Claude Opus 5.5 (`MODEL_QUESTIONNAIRE` and `MODEL_VALIDATOR`). Claude calls stream, send a JSON schema with nested conditions unrolled to two levels (or put it in the instructions when Claude cannot compile a large schema), validate the answer in code, and fall back to another Claude model on a refusal. Routing and analysis still call the OpenAI Agents SDK. An uploaded DOCX, PDF, TXT, or Markdown file in the project is included as study material, and Word tables are part of that text. Open-end classification and codeframe proposals call Claude when `MODEL_CODING` starts with `claude`. Numeric results do not.
 - While a task is running, the chat keeps the user’s message on screen and lists the real stage messages (for example “Drafting the instrument”), with a clock on the current stage. The open artifact stays in the panel and shows that same stage.
 - The questionnaire editor adds, deletes, and reorders questions and options, and autosaves through the revision API. The tab-spec grid sorts, copies, inserts, and deletes rows. A duplicate table id or an unknown banner is blocked.
 - Asking for a chart of the latest table runs a generated script in the sandbox and records a job. The chat does not accept arbitrary Python inside the API process.

@@ -72,8 +72,10 @@ async def discover(server_url: str) -> tuple[str, str] | None:
     path = parts.path.rstrip("/")
     async with httpx.AsyncClient(timeout=10, follow_redirects=True) as http:
         resource = None
-        for url in (f"{origin}/.well-known/oauth-protected-resource{path}",
-                    f"{origin}/.well-known/oauth-protected-resource"):
+        for url in (
+            f"{origin}/.well-known/oauth-protected-resource{path}",
+            f"{origin}/.well-known/oauth-protected-resource",
+        ):
             resource = await _get_json(http, url)
             if resource and resource.get("authorization_servers"):
                 break
