@@ -256,3 +256,250 @@ export function saveDownload(fileId: string): void {
   link.click();
   link.remove();
 }
+
+export async function sendFeedback(artifactId: string, rating: "up" | "down", note = ""): Promise<void> {
+  const response = await fetch(`/api/artifacts/${artifactId}/feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rating, note }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body?.error?.message || "Feedback was not saved.");
+  }
+}
+
+export type ConnectorTool = { name: string; description: string; read_only: boolean };
+
+export type Connector = {
+  id: string;
+  catalog_id: string;
+  name: string;
+  category: string;
+  description: string;
+  auth: "oauth" | "token";
+  server_url: string;
+  status: "disconnected" | "connected" | "error";
+  error?: string | null;
+  configured: boolean;
+  client_env: string[];
+  has_token: boolean;
+  status_note: string;
+  setup: string[];
+  examples: string[];
+  docs_url: string;
+  redirect_uri: string;
+  scopes: string[];
+  tools: ConnectorTool[];
+  custom: boolean;
+};
+
+export type ConnectorAction = {
+  id: string;
+  connector: string;
+  tool: string;
+  summary: string;
+  arguments: Record<string, unknown>;
+  display?: Record<string, string>;
+  status: "pending" | "done" | "failed" | "cancelled";
+  result?: string | null;
+  created_at: string;
+};
+
+export async function listConnectors(): Promise<Connector[]> {
+  return parse(await fetch("/api/connectors"));
+}
+
+export async function connectConnector(id: string): Promise<{ authorize_url?: string; connector?: Connector }> {
+  return parse(await fetch(`/api/connectors/${id}/connect`, { method: "POST" }));
+}
+
+export async function testConnector(id: string): Promise<Connector> {
+  return parse(await fetch(`/api/connectors/${id}/test`, { method: "POST" }));
+}
+
+export async function disconnectConnector(id: string): Promise<void> {
+  await parse(await fetch(`/api/connectors/${id}/disconnect`, { method: "POST" }));
+}
+
+export async function addCustomConnector(body: { name: string; server_url: string; token: string }): Promise<Connector> {
+  return parse(await fetch("/api/connectors/custom", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }));
+}
+
+export async function updateConnector(
+  id: string,
+  body: { server_url?: string; scopes?: string[]; tenant_id?: string; token?: string },
+): Promise<Connector> {
+  return parse(await fetch(`/api/connectors/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }));
+}
+
+export async function listConnectorActions(projectId: string): Promise<ConnectorAction[]> {
+  return parse(await fetch(`/api/projects/${projectId}/connector-actions`));
+}
+
+export async function decideConnectorAction(id: string, decision: "approve" | "cancel"): Promise<ConnectorAction> {
+  return parse(await fetch(`/api/connector-actions/${id}/${decision}`, { method: "POST" }));
+}
+
+export type LiveQualityState = {
+  enabled: boolean;
+  survey_id: string;
+  name_id: string;
+  fielded: boolean;
+  decipher: {
+    programmed: boolean;
+    survey_url?: string | null;
+    survey_path?: string | null;
+    uploaded: boolean;
+    tracking_in_xml: boolean;
+    has_questionnaire: boolean;
+  };
+};
+
+export type LiveTextDetail = { question?: string | null; answer?: string | null; quality?: number | null; flagged: boolean; reasons: string[] };
+
+export type LiveRespondent = {
+  session_id: string;
+  respondent_id?: string | null;
+  started?: string | null;
+  last_activity?: string | null;
+  events: number;
+  status: "checked" | "in_progress" | "dropped";
+  verdict: "bot" | "human" | "pending";
+  confidence?: number | null;
+  risk: string;
+  text_responses: number;
+  text_quality?: number | null;
+  text_flagged: number;
+  fraud_score?: number | null;
+  duplicate: boolean;
+  fraud_risk?: string | null;
+  straight_lining: boolean;
+  speeder: boolean;
+  flatliner: boolean;
+  pages: number;
+  seconds?: number | null;
+  flags: string[];
+  explanation?: string | null;
+  text_details: LiveTextDetail[];
+  fraud_reasons?: Record<string, unknown> | null;
+  grid_explanation?: string | null;
+  timing_explanation?: string | null;
+};
+
+export type LiveResults = {
+  survey_id: string;
+  updated_at: string;
+  totals: {
+    sessions: number;
+    in_progress: number;
+    checked: number;
+    dropped: number;
+    bots: number;
+    flagged: number;
+    duplicates: number;
+    speeders: number;
+    straight_liners: number;
+    low_quality_text: number;
+  };
+  text: { responses: number; avg_quality?: number | null; flagged: number; flagged_pct: number };
+  fraud: { analyzed: number; avg_score?: number | null; high_risk: number; duplicates: number };
+  flag_counts: { flag: string; count: number }[];
+  quality_distribution: Record<string, number>;
+  trend: { unit: "hour" | "day"; buckets: { start: string; started: number; flagged: number }[] };
+  respondents: LiveRespondent[];
+};
+
+export type LiveSurvey = {
+  survey_id: string;
+  respondents: number;
+  sessions: number;
+  bots: number;
+  last_session?: string | null;
+  project_id?: string | null;
+  project_name?: string | null;
+};
+
+export async function listLiveSurveys(): Promise<LiveSurvey[]> {
+  return parse(await fetch("/api/live-quality/surveys"));
+}
+
+export async function getSurveyResults(surveyId: string): Promise<LiveResults> {
+  return parse(await fetch(`/api/live-quality/results?survey_id=${encodeURIComponent(surveyId)}`));
+}
+
+export function surveyExportUrl(surveyId: string): string {
+  return `/api/live-quality/export?survey_id=${encodeURIComponent(surveyId)}`;
+}
+
+export async function getLiveQuality(projectId: string): Promise<LiveQualityState> {
+  return parse(await fetch(`/api/projects/${projectId}/live-quality`));
+}
+
+export async function setLiveQuality(
+  projectId: string,
+  enabled: boolean,
+  useProjectName = false,
+): Promise<LiveQualityState> {
+  return parse(await fetch(`/api/projects/${projectId}/live-quality`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled, use_project_name: useProjectName }),
+  }));
+}
+
+/** One project's quality rules (see backend app/services/quality_rules.py). */
+export type QualityRules = {
+  bot_threshold: number;
+  bot_signals: string[];
+  speeder_page_seconds: number;
+  speeder_median_share: number;
+  straightline_min_rows: number;
+  text_reasons: string[];
+  flag_pasted: boolean;
+  fraud_threshold: number;
+  flag_duplicates: boolean;
+  flag_datacenter: boolean;
+  terminate_in_survey: boolean;
+  terminate_after_page: number;
+  terminate_signals: string[];
+  privacy_notice: boolean;
+  privacy_text: string;
+};
+
+export type QualityRulesState = {
+  rules: QualityRules;
+  defaults: QualityRules;
+  changed: (keyof QualityRules)[];
+  bot_signals: Record<string, string>;
+  text_reasons: Record<string, string>;
+  survey_fields: (keyof QualityRules)[];
+};
+
+export async function getQualityRules(projectId: string): Promise<QualityRulesState> {
+  return parse(await fetch(`/api/projects/${projectId}/live-quality/rules`));
+}
+
+export async function saveQualityRules(projectId: string, rules: QualityRules): Promise<QualityRulesState> {
+  return parse(await fetch(`/api/projects/${projectId}/live-quality/rules`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(rules),
+  }));
+}
+
+export async function resetQualityRules(projectId: string): Promise<QualityRulesState> {
+  return parse(await fetch(`/api/projects/${projectId}/live-quality/rules`, { method: "DELETE" }));
+}
+
+export async function getLiveResults(projectId: string): Promise<LiveResults> {
+  return parse(await fetch(`/api/projects/${projectId}/live-quality/results`));
+}

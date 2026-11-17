@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -59,6 +60,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     logging.getLogger().addFilter(_RedactKey(active.openai_api_key))
     logging.getLogger().addFilter(_RedactKey(active.decipher_api_key))
     logging.getLogger().addFilter(_RedactKey(active.prolific_api_key))
+    for secret in (
+        active.google_mcp_client_secret,
+        active.slack_mcp_client_secret,
+        active.microsoft_mcp_client_secret,
+        active.connector_secret_key,
+        active.bot_detection_token_secret,
+    ):
+        logging.getLogger().addFilter(_RedactKey(secret))
     engine = make_engine(active)
     Base.metadata.create_all(engine)
     session_factory = make_session_factory(engine)
@@ -135,7 +144,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "error": {
                     "code": "validation_error",
                     "message": "The request body is not valid.",
-                    "details": exc.errors(),
+                    # Reason: custom validators put the exception object in ``ctx``; keep it JSON-safe.
+                    "details": jsonable_encoder(exc.errors(), custom_encoder={Exception: str}),
                 }
             },
         )

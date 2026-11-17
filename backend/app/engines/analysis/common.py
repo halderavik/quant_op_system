@@ -132,8 +132,7 @@ def prepare_clustering(
             {
                 "name": name,
                 "reason": (
-                    f"answered by {int(counts[name])} respondents; "
-                    f"kept base stays at least {floor}"
+                    f"answered by {int(counts[name])} respondents; kept base stays at least {floor}"
                 ),
             }
             for name in skipped

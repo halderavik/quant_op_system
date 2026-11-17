@@ -40,3 +40,5 @@ class DecipherProgram(BaseModel):
     file_id: str | None = None
     questionnaire_artifact_id: str | None = None
     questionnaire_version: int | None = None
+    # Reason: set when live bot and fraud tracking was added to this XML.
+    tracking_survey_id: str | None = None

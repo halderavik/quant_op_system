@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     model_general: str = "gpt-6.1-sol"
     model_synthetic: str = "claude-sonnet-5-5"
     model_fallback: str = "gpt-6.1-sol"
+    # Reason: the Ad Hoc AutoCoder calls the OpenAI Responses API with this model.
+    model_autocoder: str = "gpt-5-mini"
+    # Reason: sentence_transformers (BGE) retrieves candidate codes better; tfidf needs no download.
+    autocoder_embeddings: str = "sentence_transformers"
+    autocoder_concurrency: int = 8
+    # Reason: records edits, follow-ups, downloads, and ratings for later lessons.
+    learning_capture: bool = True
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     sandbox_image: str = "python:3.12-slim"
     sandbox_timeout_seconds: int = 60
@@ -48,6 +55,25 @@ class Settings(BaseSettings):
     prolific_api_key: str = ""
     prolific_workspace_id: str = ""
     prolific_project_id: str = ""
+    # Reason: connector OAuth clients belong to the organisation. Values never reach the browser.
+    google_mcp_client_id: str = ""
+    google_mcp_client_secret: str = ""
+    slack_mcp_client_id: str = ""
+    slack_mcp_client_secret: str = ""
+    microsoft_mcp_client_id: str = ""
+    microsoft_mcp_client_secret: str = ""
+    microsoft_tenant_id: str = ""
+    # Reason: encrypts stored connector tokens. Generated under storage_root when empty.
+    connector_secret_key: str = ""
+    # Reason: OAuth providers redirect here. Slack needs an HTTPS URL, such as a tunnel.
+    public_base_url: str = "http://localhost:8000"
+    connector_timeout_seconds: int = 60
+    # Reason: live surveys send behaviour to the deployed bot-detection API, which respondents can reach.
+    bot_detection_api_base: str = (
+        "https://bot-backend-119522247395.northamerica-northeast2.run.app/api/v1"
+    )
+    # Shared with the bot-detection service (its TRACKING_TOKEN_SECRET); signs survey tokens.
+    bot_detection_token_secret: str = ""
 
     @field_validator("storage_root", "session_db_path", mode="before")
     @classmethod

@@ -6,6 +6,9 @@ from typing import Any
 from app.schemas.project import TaskContract
 
 _COLUMN = re.compile(r"\b(?:column|variable)\s+([A-Za-z_][A-Za-z0-9_]*)", re.I)
+_QUESTION_TEXT = re.compile(
+    r"\bquestion(?:\s+text|\s+wording)?\s*[:=]?\s*[\"\u201c]([^\"\u201d]{8,})[\"\u201d]", re.I
+)
 _RESPONDENT = re.compile(r"\brespondent(?:\s+id|_id)?\s+([A-Za-z_][A-Za-z0-9_]*)", re.I)
 
 _META: dict[str, tuple[str, list[str]]] = {
@@ -18,12 +21,16 @@ _META: dict[str, tuple[str, list[str]]] = {
     "propose_codeframe": ("coding", ["codeframe"]),
     "import_codeframe": ("coding", ["codeframe"]),
     "code_open_ends": ("coding", ["coding"]),
+    "autocode_open_ends": ("coding", ["codeframe", "coding"]),
+    "report_plan": ("report", ["report_plan"]),
+    "run_report": ("report", ["report", "pptx"]),
     "clean_data": ("cleaning", ["cleaning", "xlsx"]),
     "apply_cleaning": ("cleaning", ["dataset"]),
     "run_saved_tabspec": ("crosstab", ["crosstab", "xlsx"]),
     "build_tabspec": ("tabspec", ["tabspec", "xlsx"]),
     "run_crosstab": ("crosstab", ["crosstab", "xlsx"]),
     "run_sandbox_task": ("general", ["chart", "report"]),
+    "use_connector": ("connector", ["connector_action"]),
     "general_task": ("general", ["note"]),
 }
 
@@ -61,9 +68,15 @@ def apply_chosen_intent(
         Task contract for that intent.
     """
     # Reason: importing here keeps the keyword module and this filler from a cycle.
-    from app.agents.intent import _BLOCKED, _BY, _check_names, _method
+    from app.agents.intent import _AUTOCODE, _BLOCKED, _BY, _DIFFERENCE, _check_names, _method
     from app.agents.intent_roles import fill_roles
 
+    if intent == "code_open_ends" and _AUTOCODE.search(text):
+        # Reason: asking for the AutoCoder by name means a fresh codeframe, even if one exists.
+        intent = "autocode_open_ends"
+    if intent == "run_crosstab" and _DIFFERENCE.search(text):
+        # Reason: a difference question needs a significance test, not a single table.
+        intent = "run_analysis"
     specialist, outputs = _META.get(intent, ("general", ["note"]))
     if intent not in _META:
         intent = "general_task"
@@ -84,7 +97,7 @@ def apply_chosen_intent(
             ["report"],
             route_reason,
         )
-    if intent in {"propose_codeframe", "import_codeframe", "code_open_ends"}:
+    if intent in {"propose_codeframe", "import_codeframe", "code_open_ends", "autocode_open_ends"}:
         _coding_fields(text, fields)
         if intent != "import_codeframe":
             if not has_dataset:
@@ -212,7 +225,10 @@ def _coding_fields(text: str, fields: dict[str, Any]) -> None:
     """
     column = _COLUMN.search(text)
     respondent = _RESPONDENT.search(text)
+    question = _QUESTION_TEXT.search(text)
     if column:
         fields["response_variable"] = column.group(1)
     if respondent:
         fields["respondent_id_variable"] = respondent.group(1)
+    if question:
+        fields["question_text"] = question.group(1).strip()

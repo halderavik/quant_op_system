@@ -7,6 +7,7 @@ from app.engines.analysis.procedure_code import validate_procedure
 from app.engines.analysis.procedures import family, is_segmentation
 from app.engines.analysis.program_code import validate_program
 from app.engines.analysis.registry import SUPPORTED_METHODS
+from app.engines.analysis.standards import rule_lines
 from app.engines.tabspec_banners import is_weight_name
 from app.errors import AppError
 from app.schemas.analysis import AnalysisStep, AnalysisWorkflow, Band
@@ -109,6 +110,47 @@ def _roles_ready(method: str, hints: dict[str, Any]) -> bool:
     return False
 
 
+def merge_custom_chain(workflow: AnalysisWorkflow) -> AnalysisWorkflow:
+    """Join a chain of methods that all lack a built-in runner into one scripted step.
+
+    "Kruskal-Wallis with Dunn post-hoc tests" may come back as two method steps.
+    Neither is built in, and one generated script can run both, so they become
+    one step that names both methods.
+    """
+    methods = [step for step in workflow.steps if step.kind == "method"]
+    if len(methods) < 2 or any(_has_runner(step) for step in methods):
+        return workflow
+    first = methods[0]
+    merged = first.model_copy(
+        update={
+            "variables": list(dict.fromkeys(v for s in methods for v in s.variables)),
+            "reason": " Then ".join(s.reason.strip() for s in methods if s.reason.strip()),
+            "method": first.method,
+        }
+    )
+    names = ", then ".join(s.method for s in methods)
+    steps = [
+        merged if s is first else s for s in workflow.steps if s.kind != "method" or s is first
+    ]
+    return workflow.model_copy(
+        update={
+            "steps": steps,
+            "data_facts": [*workflow.data_facts, f"One script runs {names}."],
+        }
+    )
+
+
+def _has_runner(step: AnalysisStep) -> bool:
+    method = canonical_method(step.method)
+    return bool(
+        step.procedure.strip()
+        or not method
+        or method in _BLOCKED
+        or method in SUPPORTED_METHODS
+        or family(method)
+    )
+
+
 def needs_generated_program(workflow: AnalysisWorkflow) -> bool:
     """Return whether the runner should ask for a script.
 
@@ -153,7 +195,11 @@ def _custom_method(workflow: AnalysisWorkflow) -> bool:
     methods = [step for step in workflow.steps if step.kind == "method"]
     if len(methods) != 1 or methods[0].procedure.strip():
         return False
-    method = canonical_method(methods[0].method)
+    step = methods[0]
+    method = canonical_method(step.method)
+    if method in {"chi_square", "correspondence"} and not (step.var_a and step.var_b):
+        # The built-in crosses one pair of columns; a grid-wide version needs its own script.
+        return len(step.variables) > 2
     if not method or method in _BLOCKED or method in SUPPORTED_METHODS or family(method):
         return False
     return True
@@ -304,6 +350,10 @@ def _check_method(
             "MaxDiff and conjoint are out of scope for this studio. No alternative model was run.",
             "unsupported_method",
         )
+    if step.k_min or step.k_max:
+        low, high = step.k_min or 2, step.k_max or step.k_min
+        if not 2 <= low <= high <= 15:
+            raise AppError(f"The segment range {low}-{high} must run from 2 up to 15.", "bad_plan")
     if step.split_by and step.output:
         raise AppError(
             "A method that runs once per group cannot also save a new column.", "bad_plan"
@@ -390,11 +440,11 @@ def compile_script(workflow: AnalysisWorkflow) -> str:
     lines = [
         '"""Analysis script. The sandbox executed this file."""',
         "",
-        f"# objective: {workflow.objective}",
+        _comment(f"objective: {workflow.objective}"),
         f"# seed: {workflow.random_seed}",
     ]
     for index, step in enumerate(workflow.steps, start=1):
-        lines.append(f"# Step {index}: {step.kind} — {step.reason}")
+        lines.append(_comment(f"Step {index}: {step.kind} — {step.reason}"))
     procedure = next((step.procedure for step in workflow.steps if step.procedure.strip()), "")
     if procedure:
         lines.extend(["", "PROCEDURE = " + repr(procedure), ""])
@@ -407,6 +457,11 @@ def compile_script(workflow: AnalysisWorkflow) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def _comment(text: str) -> str:
+    """Comment every line of free text, so a line break in a request cannot become code."""
+    return "\n".join(f"# {line}" for line in (text.splitlines() or [""]))
 
 
 def render_plan(workflow: AnalysisWorkflow, columns: list[dict[str, Any]] | None = None) -> str:
@@ -446,6 +501,8 @@ def render_plan(workflow: AnalysisWorkflow, columns: list[dict[str, Any]] | None
                 f"- `{column['name']}`: {column['nonmissing_n']} answered, "
                 f"{column['missing_n']} missing."
             )
+    lines.extend(["", "## Research standards", ""])
+    lines.extend(f"- {item}" for item in [*workflow.standards, *rule_lines()])
     lines.extend(["", "## Assumptions", ""])
     assumptions = workflow.assumptions or [
         "Associations describe this sample. They are not causal effects.",
@@ -537,6 +594,8 @@ def _step_settings(step: AnalysisStep) -> str:
         parts.append("codes=" + ",".join(step.codes))
     if step.k:
         parts.append(f"k={step.k}")
+    elif step.k_min or step.k_max:
+        parts.append(f"test k={step.k_min or 2}-{step.k_max or step.k_min}")
     if step.dependent:
         parts.append(f"dependent={step.dependent}")
     if step.predictors:

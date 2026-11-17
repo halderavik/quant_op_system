@@ -88,7 +88,10 @@ async def run_open_end_coding(
         sent_to_model = True
     report, existing = aggregate_saved_coding(codeframe, existing, weights)
     file_id = _export(db, storage, project_id, frame, codeframe, existing, report)
-    artifact_id = _persist(db, project_id, codeframe, existing, report, artifact_id, file_id)
+    charts = coding_chart_files(db, storage, project_id, report, codeframe)
+    artifact_id = _persist(
+        db, project_id, codeframe, existing, report, artifact_id, file_id, charts=charts
+    )
     gate = summarize(_checks(db, existing, report, storage, file_id))
     status = "completed" if gate.status == "passed" else "failed"
     disclosure = _DISCLOSURE if sent_to_model else "No response text was sent to the model."
@@ -326,6 +329,7 @@ def _persist(
     report: CodingReport,
     artifact_id: str | None,
     file_id: str | None,
+    charts: dict[str, Any] | None = None,
 ) -> str:
     """Save the coding revision.
 
@@ -352,6 +356,7 @@ def _persist(
             "report": report.model_dump(mode="json"),
             "export_file_id": file_id,
             "disclosure": _DISCLOSURE,
+            **(charts or {}),
         },
         content_schema="coding/1",
         created_by="coding",
@@ -359,6 +364,27 @@ def _persist(
         validation_status="pending",
     )
     return revision.artifact_id
+
+
+def coding_chart_files(
+    db: Session, storage: Storage, project_id: str, report: CodingReport, codeframe: Codeframe
+) -> dict[str, Any]:
+    """Draw net and code frequency charts and return the artifact fields that point at them."""
+    from app.engines.analysis.plots import coding_charts
+    from app.services.chart_files import store_charts
+
+    drawn = store_charts(
+        db,
+        storage,
+        project_id,
+        coding_charts(report, codeframe),
+        f"coding_{codeframe.response_variable}",
+    )
+    return {
+        "charts": drawn["charts"],
+        "chart_file_id": drawn["chart_file_id"],
+        "charts_zip_file_id": drawn["charts_zip_file_id"],
+    }
 
 
 def _export(

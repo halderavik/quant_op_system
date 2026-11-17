@@ -75,9 +75,10 @@ def test_open_end_asks_for_a_column_and_a_codeframe(client, tmp_path: Path) -> N
         json={"content": "code the open-end column comment using respondent id respondent_id"},
     )
     named_task = client.get(f"/api/tasks/{named.json()['task_id']}").json()
+    # Reason: with no codeframe the Ad Hoc AutoCoder builds one, and it needs the wording.
     assert named_task["status"] == "clarification_needed"
     messages = client.get(f"/api/conversations/{project['conversation_id']}/messages").json()
-    assert "codeframe" in messages[-1]["content"].lower()
+    assert "question wording for comment" in messages[-1]["content"].lower()
 
 
 def test_open_end_job_codes_text_and_resumes(

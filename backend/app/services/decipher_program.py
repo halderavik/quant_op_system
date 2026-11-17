@@ -50,6 +50,23 @@ def program_decipher_survey(
     existing = ArtifactRepository(db).latest_of_type(project_id, "decipher_survey")
     stored_path = _stored_path(existing.content if existing else None)
     active = settings or get_settings()
+    tracking_id = _tracking_id(db, project_id)
+    if tracking_id:
+        from app.engines.decipher_tracking import add_tracking, survey_token
+        from app.services.quality_rules import get_rules, survey_rules
+
+        program = program.model_copy(
+            update={
+                "xml": add_tracking(
+                    program.xml,
+                    tracking_id,
+                    active.bot_detection_api_base,
+                    token=survey_token(tracking_id, active.bot_detection_token_secret),
+                    rules=survey_rules(get_rules(db, project_id)),
+                ),
+                "tracking_survey_id": tracking_id,
+            }
+        )
     xml, launch_status, launch_message, survey_path, survey_url, fixes = _upload(
         active, program.xml, document.title, stored_path
     )
@@ -100,15 +117,21 @@ def program_decipher_survey(
     status = "completed" if stored.validation_status == "passed" else "completed_with_warnings"
     if launch_status == "failed":
         status = "completed_with_warnings"
+    summary = _summary(
+        document.title,
+        len(document.questions),
+        len(program.warnings),
+        launch_status,
+        survey_path,
+        launch_message,
+    )
+    if tracking_id:
+        summary += (
+            f" Live bot and fraud tracking is on (tracking id {tracking_id}); "
+            "results appear under Live quality as people take the survey."
+        )
     return {
-        "summary": _summary(
-            document.title,
-            len(document.questions),
-            len(program.warnings),
-            launch_status,
-            survey_path,
-            launch_message,
-        ),
+        "summary": summary,
         "status": status,
         "artifact_id": revision.artifact_id,
         "version": revision.version,
@@ -117,6 +140,25 @@ def program_decipher_survey(
         "survey_path": survey_path,
         "survey_url": survey_url,
     }
+
+
+def _tracking_id(db: Session, project_id: str) -> str | None:
+    """Return the live-quality tracking id when tracking is on for the project.
+
+    Args:
+        db: Session.
+        project_id: Project id.
+
+    Returns:
+        Tracking survey id, or None.
+    """
+    from app.services.live_quality import remember_survey_id, tracking_settings
+
+    settings = tracking_settings(db, project_id)
+    if not settings["enabled"]:
+        return None
+    remember_survey_id(db, project_id, settings["survey_id"])
+    return settings["survey_id"]
 
 
 def _upload(

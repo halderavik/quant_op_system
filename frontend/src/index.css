@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&display=swap");
 @import "tailwindcss";
 
 /*
@@ -26,6 +27,14 @@
   --color-success: #066a4a;
   --color-success-soft: #e8f7ef;
 
+  /* Quant OS logo (b3). The mark keeps its blue nodes; squares and words follow the theme. */
+  --logo-ink: #08090b;
+  --logo-grey: #a6aaad;
+  --logo-node: #1f6892;
+  --logo-b3: #1f6892;
+  --logo-word: #0c1640;
+  --logo-halo: var(--color-surface);
+
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
 }
@@ -53,6 +62,11 @@
   --color-danger-soft: #2f1615;
   --color-success: #74e0b2;
   --color-success-soft: #0f2a20;
+  --logo-ink: #e6eaee;
+  --logo-grey: #6b747c;
+  --logo-node: #2c7fb4;
+  --logo-b3: #5aa7d9;
+  --logo-word: #eef1f6;
 }
 
 /* Base styles live in the base layer so utility classes can override them. */

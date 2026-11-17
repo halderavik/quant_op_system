@@ -10,6 +10,8 @@ import {
   Moon,
   PanelLeft,
   Paperclip,
+  Plug,
+  ShieldCheck,
   Plus,
   Square,
   Sun,
@@ -19,11 +21,15 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } f
 import {
   type Artifact,
   type ChatMessage,
+  type Connector,
+  type ConnectorAction,
   type Project,
   type TaskStage,
   createProject,
   getDataset,
   listArtifacts,
+  listConnectorActions,
+  listConnectors,
   listMessages,
   listProjects,
   cancelTask,
@@ -31,7 +37,11 @@ import {
   taskStatus,
   uploadFile,
 } from "./api";
+import { BrandLogo, BrandMark } from "./BrandLogo";
+import { ConnectorApprovals, ConnectorsDialog } from "./Connectors";
 import { ArtifactEditor } from "./Editors";
+import { LiveQualityPanel } from "./LiveQualityPanel";
+import { QualityDashboard } from "./quality/QualityDashboard";
 import { ArtifactIcon, OutputsPanel } from "./OutputsPanel";
 import { TaskActivity } from "./TaskActivity";
 import { TASK_POLL_MS, activitySteps, artifactToShow, formatElapsed, isTerminalStatus, stillWaiting } from "./chatState";
@@ -40,7 +50,7 @@ import { nudgeWidth } from "./outputs";
 import { nextPreference, useTheme, type ThemePreference } from "./theme";
 import { Button, IconButton } from "./ui";
 
-type WorkspaceTab = "outputs" | "viewer";
+type WorkspaceTab = "outputs" | "viewer" | "live";
 type DatasetInfo = { rows: number; variables: string[] };
 
 const PANEL_MIN = 360;
@@ -74,6 +84,10 @@ export function App() {
   const [mobileView, setMobileView] = useState<"chat" | "outputs">("chat");
   const [expanded, setExpanded] = useState(false);
   const [theme, setTheme] = useTheme();
+  const [connectorsOpen, setConnectorsOpen] = useState(false);
+  const [dashboard, setDashboard] = useState<{ survey?: string } | null>(null);
+  const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [actions, setActions] = useState<ConnectorAction[]>([]);
   const transcriptEnd = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
@@ -87,13 +101,15 @@ export function App() {
 
   async function refreshProject(current: Project): Promise<Artifact[]> {
     if (!current.conversation_id) return [];
-    const [nextMessages, nextArtifacts, full] = await Promise.all([
+    const [nextMessages, nextArtifacts, full, nextActions] = await Promise.all([
       listMessages(current.conversation_id),
       listArtifacts(current.id),
       fetch(`/api/projects/${current.id}`).then((response) => response.json()),
+      listConnectorActions(current.id).catch(() => [] as ConnectorAction[]),
     ]);
     setMessages(nextMessages);
     setArtifacts(nextArtifacts);
+    setActions(nextActions);
     // The dataset summary can be slow for large files; load it without
     // holding back the transcript and outputs.
     if (full.active_dataset_id) {
@@ -120,6 +136,7 @@ export function App() {
 
   useEffect(() => {
     refreshProjects().catch((reason: Error) => setError(reason.message));
+    listConnectors().then(setConnectors).catch(() => setConnectors([]));
   }, []);
 
   useEffect(() => {
@@ -134,7 +151,7 @@ export function App() {
 
   useEffect(() => {
     transcriptEnd.current?.scrollIntoView({ block: "end" });
-  }, [messages, busy, activeStep]);
+  }, [messages, busy, activeStep, actions]);
 
   function selectProject(item: Project) {
     projectRef.current = item.id;
@@ -142,6 +159,7 @@ export function App() {
     setArtifacts([]);
     setMessages([]);
     setDataset(null);
+    setActions([]);
     setError("");
     setNotice("");
     setRailOpen(false);
@@ -163,9 +181,9 @@ export function App() {
     show(null);
   }
 
-  async function onSend() {
-    if (!project?.conversation_id || !draft.trim() || busy) return;
-    const text = draft.trim();
+  async function onSend(override?: string) {
+    const text = (override ?? draft).trim();
+    if (!project?.conversation_id || !text || busy) return;
     setBusy(true);
     setError("");
     setNotice("");
@@ -217,7 +235,9 @@ export function App() {
   function onTabKey(event: KeyboardEvent<HTMLButtonElement>) {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
-    const next: WorkspaceTab = tab === "outputs" && open ? "viewer" : "outputs";
+    const order: WorkspaceTab[] = open ? ["outputs", "viewer", "live"] : ["outputs", "live"];
+    const step = event.key === "ArrowRight" ? 1 : -1;
+    const next = order[(order.indexOf(tab) + step + order.length) % order.length];
     setTab(next);
     document.getElementById(`tab-${next}`)?.focus();
   }
@@ -245,10 +265,10 @@ export function App() {
         )}
       >
         <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-line px-4">
-          <span aria-hidden className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-xs font-bold text-on-accent">S</span>
+          <BrandMark className="h-8 w-8 shrink-0" title="" />
           <div className="min-w-0 flex-1">
-            <h1 className="text-sm font-semibold leading-tight">SRAS</h1>
-            <p className="truncate text-[11px] leading-tight text-muted">Survey Research Agent Studio</p>
+            <h1 className="text-sm font-semibold leading-tight" style={{ fontFamily: '"Poppins", var(--font-sans)', letterSpacing: "0.04em" }}>Quant OS</h1>
+            <p className="truncate text-[11px] leading-tight text-muted">by b3 · survey research agents</p>
           </div>
           <IconButton className="xl:hidden" label="Close projects" onClick={() => setRailOpen(false)}>
             <X className="h-4 w-4" />
@@ -328,7 +348,18 @@ export function App() {
             </div>
           )}
         </div>
-        <div className="shrink-0 border-t border-line p-2">
+        <div className="shrink-0 space-y-0.5 border-t border-line p-2">
+          <Button className="w-full justify-start" onClick={() => setDashboard({})} size="sm" variant="ghost">
+            <ShieldCheck aria-hidden className="h-4 w-4" />
+            Quality dashboard
+          </Button>
+          <Button className="w-full justify-start" onClick={() => setConnectorsOpen(true)} size="sm" variant="ghost">
+            <Plug aria-hidden className="h-4 w-4" />
+            Connectors
+            <span className="ml-auto rounded-full bg-accent-soft px-1.5 text-[11px] font-semibold text-accent">
+              {connectors.filter((item) => item.status === "connected").length} on
+            </span>
+          </Button>
           <Button className="w-full justify-start" onClick={() => setTheme(nextPreference(theme))} size="sm" variant="ghost">
             <ThemeIcon aria-hidden className="h-4 w-4" />
             Theme: {theme === "system" ? "System" : theme === "light" ? "Light" : "Dark"}
@@ -377,7 +408,8 @@ export function App() {
           <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
             {!project && (
               <div className="rounded-xl border border-dashed border-line-strong bg-surface p-8 text-center">
-                <p className="text-base font-semibold">Welcome to SRAS</p>
+                <BrandLogo className="mx-auto mb-4 w-56 [container-type:inline-size]" />
+                <p className="text-base font-semibold">Welcome to Quant OS</p>
                 <p className="mt-1 text-sm text-muted">
                   Pick a project on the left, or create one. Then ask for a questionnaire, a tab spec, a crosstab, a cleaning check or a Prolific sample quote.
                 </p>
@@ -411,6 +443,14 @@ export function App() {
                 </article>
               );
             })}
+            {project && (
+              <ConnectorApprovals
+                actions={actions}
+                onDecided={async () => {
+                  await refreshProject(project);
+                }}
+              />
+            )}
             {busy && <TaskActivity elapsedLabel={formatElapsed(now - stageStarted)} steps={steps} />}
             <div ref={transcriptEnd} />
           </div>
@@ -588,6 +628,23 @@ export function App() {
                   <span className="truncate">{open ? open.name : "Viewer"}</span>
                 </button>
               </div>
+              <button
+                aria-controls="panel-live"
+                aria-selected={tab === "live"}
+                className={clsx(
+                  "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors",
+                  tab === "live" ? "bg-sunken text-ink" : "text-muted hover:text-ink",
+                )}
+                id="tab-live"
+                onClick={() => setTab("live")}
+                onKeyDown={onTabKey}
+                role="tab"
+                tabIndex={tab === "live" ? 0 : -1}
+                type="button"
+              >
+                <ShieldCheck aria-hidden className="h-4 w-4" />
+                Live quality
+              </button>
               {open && (
                 <IconButton label="Close viewer" onClick={() => show(null)}>
                   <X className="h-4 w-4" />
@@ -611,6 +668,23 @@ export function App() {
                 projectId={project.id}
               />
             </div>
+            <div
+              aria-labelledby="tab-live"
+              className={clsx("min-h-0 flex-1 overflow-y-auto bg-canvas", tab !== "live" && "hidden")}
+              id="panel-live"
+              role="tabpanel"
+            >
+              {tab === "live" && (
+                <LiveQualityPanel
+                  onError={setError}
+                  onOpenDashboard={(survey) => setDashboard({ survey })}
+                  onProgrammed={async () => {
+                    await refreshProject(project);
+                  }}
+                  projectId={project.id}
+                />
+              )}
+            </div>
             {open && (
               <div
                 aria-labelledby="tab-viewer"
@@ -625,6 +699,7 @@ export function App() {
                   onSaved={async () => {
                     if (project) await refreshProject(project);
                   }}
+                  onAsk={(text) => void onSend(text)}
                   onProgrammed={async (artifactId) => {
                     if (!project) return;
                     const next = await refreshProject(project);
@@ -636,6 +711,18 @@ export function App() {
             )}
           </aside>
         </>
+      )}
+      {dashboard && <QualityDashboard initialSurvey={dashboard.survey} onClose={() => setDashboard(null)} />}
+      {connectorsOpen && (
+        <ConnectorsDialog
+          onChanged={setConnectors}
+          onClose={() => setConnectorsOpen(false)}
+          onTry={(prompt) => {
+            setConnectorsOpen(false);
+            setDraft(prompt);
+            window.setTimeout(() => composer.current?.focus(), 0);
+          }}
+        />
       )}
     </div>
   );

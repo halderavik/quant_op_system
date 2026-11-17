@@ -149,6 +149,13 @@ def run_requested_crosstab(
     )
     export_path = storage.resolve(project_id, FileRepository(db).get(file_id).storage_relpath)
     checks.append(validate_export(export_path))
+    from app.engines.analysis.plots import table_chart
+    from app.services.chart_files import store_charts
+
+    chart = table_chart(result)
+    drawn = store_charts(
+        db, storage, project_id, [chart] if chart else [], f"table_{result.table_id}"
+    )
     report = summarize(checks)
     revision = ArtifactRepository(db).create(
         project_id=project_id,
@@ -160,6 +167,7 @@ def run_requested_crosstab(
             "exceptions": [],
             "export_file_id": file_id,
             "spec": spec.model_dump(mode="json"),
+            "chart_file_id": drawn["chart_file_id"],
         },
         content_schema="crosstab/1",
         created_by="crosstab",

@@ -23,6 +23,8 @@ const TYPE_LABELS: Record<string, string> = {
   coding: "Coding",
   cleaning: "Data cleaning",
   synthetic_data: "Synthetic data",
+  report_plan: "Report plan",
+  report: "Report deck",
   note: "Note",
 };
 

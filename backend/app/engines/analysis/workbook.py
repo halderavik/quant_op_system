@@ -9,7 +9,10 @@ from app.schemas.analysis import AnalysisReport, AnalysisWorkflow
 
 
 def workbook_bytes(
-    workflow: AnalysisWorkflow, result: dict[str, Any], report: AnalysisReport
+    workflow: AnalysisWorkflow,
+    result: dict[str, Any],
+    report: AnalysisReport,
+    images: list[tuple[str, bytes]] | None = None,
 ) -> bytes:
     """Build the detailed workbook for a finished analysis.
 
@@ -23,13 +26,16 @@ def workbook_bytes(
     """
     book = Workbook()
     _plan_sheet(book, workflow)
+    _quality_sheet(book, workflow, result)
     _sample_sheet(book, result)
     _rows_sheet(book, "Imputation", _impute_rows(result))
     _rows_sheet(book, "Recodes", _recode_rows(result))
     _method_sheet(book, result)
+    _ranking_sheet(book, result)
     _profile_sheet(book, result)
     _compare_sheet(book, result)
     _rows_sheet(book, "Diagnostics", _diagnostic_rows(result))
+    _chart_sheet(book, images or [])
     summary = book.create_sheet("Summary")
     summary.append(["Summary"])
     for line in (report.rendered or "").splitlines():
@@ -42,6 +48,94 @@ def workbook_bytes(
     buffer = BytesIO()
     book.save(buffer)
     return buffer.getvalue()
+
+
+def _chart_sheet(book: Workbook, images: list[tuple[str, bytes]]) -> None:
+    """Place each chart image under its title, one below the other."""
+    if not images:
+        return
+    from openpyxl.drawing.image import Image
+
+    sheet = book.create_sheet("Charts")
+    row = 1
+    for title, data in images:
+        sheet.cell(row=row, column=1, value=title)
+        picture = Image(BytesIO(data))
+        scale = min(1.0, 900 / max(picture.width, 1))
+        picture.width, picture.height = int(picture.width * scale), int(picture.height * scale)
+        sheet.add_image(picture, f"A{row + 1}")
+        row += int(picture.height / 20) + 4
+
+
+def _quality_sheet(book: Workbook, workflow: AnalysisWorkflow, result: dict[str, Any]) -> None:
+    """Write the research standards and every pass or flag check.
+
+    Args:
+        book: Workbook.
+        workflow: Plan that ran, with any standards the server applied.
+        result: Computed payload.
+    """
+    diagnostics = result.get("diagnostics") or {}
+    sheet = book.create_sheet("Quality checks")
+    sheet.append(["Area", "Check", "Status", "Detail"])
+    for item in diagnostics.get("quality_checks") or []:
+        sheet.append(
+            [
+                item.get("area"),
+                item.get("check"),
+                str(item.get("status", "")).upper(),
+                item.get("detail"),
+            ]
+        )
+    sheet.append([])
+    sheet.append(["Research standards"])
+    for line in [*workflow.standards, *(diagnostics.get("standards") or [])]:
+        sheet.append([line])
+
+
+def _ranking_sheet(book: Workbook, result: dict[str, Any]) -> None:
+    """Write each driver importance ranking, one block per fit.
+
+    Args:
+        book: Workbook.
+        result: Computed payload.
+    """
+    blocks = importance_rankings(result)
+    if not blocks:
+        return
+    sheet = book.create_sheet("Driver importance")
+    for name, ranking in blocks:
+        sheet.append([name])
+        sheet.append(["Rank", "Driver", "Importance %", "Standardized coefficient"])
+        for row in ranking:
+            sheet.append(
+                [
+                    row.get("rank"),
+                    row.get("driver"),
+                    row.get("importance_pct"),
+                    row.get("standardized_coefficient"),
+                ]
+            )
+        sheet.append([])
+
+
+def importance_rankings(result: dict[str, Any]) -> list[tuple[str, list[dict[str, Any]]]]:
+    """Return (fit name, ranking) pairs from a single or multi-fit payload.
+
+    Args:
+        result: Computed payload.
+
+    Returns:
+        Rankings in payload order.
+    """
+    descriptive = result.get("descriptive") or {}
+    if descriptive.get("importance_ranking"):
+        return [("Key drivers", descriptive["importance_ranking"])]
+    return [
+        (name, block["importance_ranking"])
+        for name, block in descriptive.items()
+        if isinstance(block, dict) and block.get("importance_ranking")
+    ]
 
 
 def _plan_sheet(book: Workbook, workflow: AnalysisWorkflow) -> None:

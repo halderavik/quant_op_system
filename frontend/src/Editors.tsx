@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import type { Artifact } from "./api";
 import { Code2, Download as DownloadIcon, Eye } from "lucide-react";
 import { downloadUrl, exportTabspec, previewSource, programDecipher, saveDownload, saveRevision, type SavedRevision } from "./api";
+import { FeedbackBar } from "./editors/FeedbackBar";
+import { ReportPlanEditor, ReportViewer } from "./editors/ReportPlanEditor";
 import { ArtifactIcon, runDownload } from "./OutputsPanel";
 import { artifactDownloads, validationTone, type Download } from "./outputs";
 import { Badge, Button } from "./ui";
@@ -35,12 +37,14 @@ export function ArtifactEditor({
   currentStage = "",
   onSaved,
   onProgrammed,
+  onAsk,
 }: {
   artifact: Artifact;
   projectId: string;
   currentStage?: string;
   onSaved: () => Promise<void>;
   onProgrammed: (artifactId: string) => Promise<void>;
+  onAsk?: (text: string) => void;
 }) {
   const latest = artifact.latest;
   const [draft, setDraft] = useState<Record<string, unknown>>(latest?.content ?? {});
@@ -206,6 +210,7 @@ export function ArtifactEditor({
               {entry.label}
             </Button>
           ))}
+          <FeedbackBar artifactId={artifact.id} version={latest.version} />
           <span className="ml-auto flex items-center gap-2">
             {!readOnly && (
               <span aria-live="polite" className={state === "conflict" ? "text-xs text-danger" : "text-xs text-muted"}>
@@ -290,8 +295,20 @@ export function ArtifactEditor({
           />
         )}
         {artifact.type === "cleaning" && <CleaningViewer content={draft} />}
+        {artifact.type === "report_plan" && (
+          <ReportPlanEditor
+            content={draft}
+            dirty={state === "unsaved"}
+            onAsk={onAsk}
+            onChange={(next) => {
+              setDraft(next);
+              setState("unsaved");
+            }}
+          />
+        )}
+        {artifact.type === "report" && <ReportViewer content={draft} />}
         {artifact.type === "synthetic_data" && <SyntheticViewer content={draft} />}
-        {!["note", "questionnaire", "decipher_survey", "sample_purchase", "tabspec", "crosstab", "analysis", "chart", "codeframe", "coding", "cleaning", "synthetic_data"].includes(artifact.type) && (
+        {!["note", "questionnaire", "decipher_survey", "sample_purchase", "tabspec", "crosstab", "analysis", "chart", "codeframe", "coding", "cleaning", "synthetic_data", "report_plan", "report"].includes(artifact.type) && (
           <pre className="whitespace-pre-wrap text-sm">{JSON.stringify(draft, null, 2)}</pre>
         )}
       </div>

@@ -299,4 +299,7 @@ def _clean_env() -> dict[str, str]:
     env.pop("ANTHROPIC_API_KEY", None)
     env["PYTHONNOUSERSITE"] = "1"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    # Scripts that open files without an encoding write UTF-8, not the Windows code page.
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     return env

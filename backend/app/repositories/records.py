@@ -262,6 +262,11 @@ class ArtifactRepository:
         self.db.flush()
         if artifact_type == "questionnaire":
             self.mark_stale(project_id, artifact.id, version)
+        if created_by == "user" and parent:
+            # Reason: a person changed what an agent or a person made; that is a learning signal.
+            from app.learning.capture import record_revision
+
+            record_revision(self.db, artifact, revision, actor="user")
         return revision
 
     def latest(self, artifact_id: str) -> ArtifactRevision | None:

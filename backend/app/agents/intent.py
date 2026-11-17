@@ -3,7 +3,7 @@
 import re
 from typing import Any
 
-from app.agents.intent_fields import _contract, apply_chosen_intent
+from app.agents.intent_fields import _coding_fields, _contract, apply_chosen_intent
 from app.agents.intent_roles import fill_roles
 from app.agents.questionnaire_route import is_project_note, is_question_edit
 from app.agents.spec_run_intent import mentions_crosstab, tab_spec_intent
@@ -21,6 +21,43 @@ _ADHOC_ANALYSIS = re.compile(
     r"run an analysis|statistical analysis|significance test",
     re.I,
 )
+# Reason: "does X differ by Y" asks for a significance test, not a table of X by Y.
+_DIFFERENCE = re.compile(
+    r"\bdiffer(?:s|ent|ence|ences)?\b[^.?!]{0,40}\b(?:by|across|between)\b|"
+    r"\bvar(?:y|ies)\s+(?:by|across)\b|\bsignificant(?:ly)?\s+(?:different|differ)",
+    re.I,
+)
+# Reason: these words ask for the Ad Hoc AutoCoder, which builds its own codeframe.
+_AUTOCODE = re.compile(
+    r"\bauto-?cod(?:e|er|ing)\b|\bautomatic(?:ally)?\s+(?:code|coding)\b|"
+    r"\bad hoc auto-?coder\b",
+    re.I,
+)
+# Reason: the report planner's words; a single chart or table request stays elsewhere.
+_REPORT_PLAN = re.compile(
+    r"\breport\s+plan\b|\bplan\s+(?:the|my|our)\s+(?:report|deck)\b|\bstoryline\b", re.I
+)
+_RUN_REPORT = re.compile(
+    r"\b(?:generate|build|create|make|produce|run|execute)\b[^.?!]{0,40}\b(?:report|deck|powerpoint|pptx|presentation)\b",
+    re.I,
+)
+
+
+def _report_intent(text: str) -> str:
+    """report_plan, run_report, or empty."""
+    if re.search(r"\b(?:skip|without|bypass)\b[^.?!]{0,30}\bclean", text, re.I):
+        return "report_plan"
+    if _REPORT_PLAN.search(text) and not re.search(
+        r"\b(?:execute|run)\b[^.?!]{0,20}\bplan\b|\b(?:pptx|powerpoint|deck)\b", text, re.I
+    ):
+        return "report_plan"
+    if _RUN_REPORT.search(text) and not re.search(
+        r"\breport\s+step\b|\banalysis\s+report\b", text, re.I
+    ):
+        return "run_report"
+    return ""
+
+
 _METHODS = [
     ("binary_logistic_regression", r"logistic"),
     ("ordinal_regression", r"ordinal"),
@@ -40,6 +77,21 @@ _METHODS = [
 ]
 
 _BLOCKED = re.compile(r"\b(maxdiff|max-diff|conjoint)\b", re.I)
+# Reason: moving files or messages to or from a named workspace tool goes to the connector agent.
+_CONNECTOR_SERVICE = (
+    r"(?:google\s*drive|gdrive|shared\s+drive|slack|one\s*drive|sharepoint|"
+    r"(?:microsoft|ms)\s+teams|microsoft\s+365|m365|#[a-z0-9][\w-]*|connector)"
+)
+_CONNECTOR_REQUEST = re.compile(
+    r"\b(?:save|upload|send|post|share|import|pull|fetch|get|find|search|open|load|put|copy|"
+    r"download|bring|notify|message|read|list|look\s+up|drop)\b.{0,80}?"
+    r"\b(?:to|from|in|on|into|onto|via|through|with)\s+(?:the\s+|my\s+|our\s+)?"
+    r"(?:project\s+|client\s+|team\s+)?" + _CONNECTOR_SERVICE,
+    re.I | re.S,
+)
+_QUESTION_EDIT = re.compile(
+    r"\b(?:add|ask|include|insert|rewrite|reword)\b.{0,40}\bquestions?\b", re.I
+)
 _QUESTIONNAIRE = (
     "questionnaire",
     "instrument",
@@ -334,6 +386,35 @@ def build_contract(
             missing,
             ["codeframe"],
         )
+    report = _report_intent(text)
+    if report:
+        return _contract(
+            task_id,
+            project_id,
+            conversation_id,
+            text,
+            report,
+            "report",
+            fields,
+            missing,
+            ["report", "pptx"] if report == "run_report" else ["report_plan"],
+        )
+    if _AUTOCODE.search(text):
+        _coding_fields(text, fields)
+        _check_names(fields, variable_names, missing)
+        if not has_dataset:
+            missing.append("dataset")
+        return _contract(
+            task_id,
+            project_id,
+            conversation_id,
+            text,
+            "autocode_open_ends",
+            "coding",
+            fields,
+            missing,
+            ["codeframe", "coding"],
+        )
     if any(
         token in lowered
         for token in ("codeframe", "open-end", "open end", "oe coding", "sentiment code")
@@ -394,7 +475,7 @@ def build_contract(
             missing,
             ["analysis", "report"],
         )
-    if _ADHOC_ANALYSIS.search(text):
+    if _ADHOC_ANALYSIS.search(text) or _DIFFERENCE.search(text):
         if not has_dataset:
             missing.append("dataset")
         return _contract(
@@ -487,7 +568,24 @@ def product_lock(text: str) -> str | None:
         return "create_questionnaire"
     if _BLOCKED.search(text):
         return "run_analysis"
+    if connector_request(text):
+        return "use_connector"
     return None
+
+
+def connector_request(text: str) -> bool:
+    """Return whether the message moves files or messages through a connected tool.
+
+    Args:
+        text: User message.
+
+    Returns:
+        True for requests such as "save the deck to Google Drive" or "post the
+        takeaways to #research". A questionnaire edit that mentions a tool is not one.
+    """
+    if len(text) > 600 or _QUESTION_EDIT.search(text):
+        return False
+    return bool(_CONNECTOR_REQUEST.search(text))
 
 
 def _sample_request(text: str) -> bool:
@@ -589,6 +687,9 @@ def _cleaning_route(text: str) -> str | None:
     Returns:
         ``apply_cleaning``, ``clean_data``, or None. Coding and statistics are not matched here.
     """
+    if _REPORT_PLAN.search(text):
+        # Reason: "update the report plan and clean the data" is the report's cleaning step.
+        return None
     if _APPLY_CLEANING.search(text):
         return "apply_cleaning"
     if _CLEANING_REQUEST.search(text):

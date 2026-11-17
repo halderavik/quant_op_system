@@ -279,12 +279,12 @@ def _register(
     project = ProjectRepository(db).get(project_id)
     previous = project.active_dataset_id
     dataset = ingest_spss(db, storage, settings, project_id, file_id)
-    if previous and previous != dataset.id and _is_synthetic(db, previous):
+    if previous and previous != dataset.id and is_synthetic(db, previous):
         project.active_dataset_id = dataset.id
     return dataset, project.active_dataset_id == dataset.id
 
 
-def _is_synthetic(db: Session, dataset_id: str) -> bool:
+def is_synthetic(db: Session, dataset_id: str) -> bool:
     """Return whether a dataset came from this generator."""
     dataset = DatasetRepository(db).get(dataset_id)
     if dataset is None or not dataset.source_file_id:
@@ -318,6 +318,10 @@ def _summary(report: SyntheticReport, status: str) -> str:
     )
     if report.dataset_active:
         text += " It is now the active dataset, so analysis and tables will use it."
+        text += (
+            " Data cleaning is optional for synthetic data: the report plan skips it unless you"
+            " ask me to clean the data for the report."
+        )
     else:
         text += (
             " Real data stays the active dataset. Switch datasets to analyse the synthetic file."

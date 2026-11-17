@@ -19,7 +19,44 @@ npm install
 npm run dev
 ```
 
-Open http://127.0.0.1:5173. Copy `.env.example` to `backend/.env` and set `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. Questionnaire drafting uses OpenAI. Open-end coding and codeframe proposals use Claude. Both keys stay on the server. A named crosstab, a tab spec that is already saved, and registered statistics run without them. Building a tab spec calls the validator, and the spec is saved only after each table has a base in the data.
+Open http://localhost:5173 (the dev server listens on `localhost`, so `127.0.0.1` may refuse the connection). Copy `.env.example` to `backend/.env` and set `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. Questionnaire drafting uses OpenAI. Open-end coding and codeframe proposals use Claude. Both keys stay on the server. A named crosstab, a tab spec that is already saved, and registered statistics run without them. Building a tab spec calls the validator, and the spec is saved only after each table has a base in the data.
+
+### Optional: Ad Hoc AutoCoder for open-end coding
+
+Fully automatic open-end coding uses the Ad Hoc AutoCoder from the private repository `Dhyey-b3/adhoc_autocoder_project`. You need read access to that repository. It is not in `pyproject.toml`, because it pins `openai<3` and this backend runs openai 3.x. Install it into the backend environment without its pinned dependencies, plus its embedding library:
+
+```powershell
+cd backend
+uv pip install --no-deps "adhoc-autocoder @ git+https://github.com/Dhyey-b3/adhoc_autocoder_project@32484bb2740e6488fd9dd6f14a429dbb16ed70f9"
+uv pip install "sentence-transformers>=3.0,<6"
+```
+
+`uv sync` removes packages that are not in the lock file, so run these two commands again after any `uv sync`. Without the AutoCoder, a coding request with no codeframe says so. You can still propose a codeframe for review, or import one. It uses `OPENAI_API_KEY` with `MODEL_AUTOCODER` (default `gpt-5-mini`). `AUTOCODER_EMBEDDINGS=tfidf` avoids downloading the BGE embedding model, but candidate codes are matched less accurately. Only the question wording and the selected answers are sent to OpenAI. The AutoCoder sees row numbers, not respondent ids.
+
+### Optional: connectors (Google Drive, Slack, Microsoft 365, custom MCP servers)
+
+Open **Connectors** at the bottom left. The agents can then import a brief or data file from Drive, OneDrive, or SharePoint, and save decks and tab books there or post updates to Slack. Ask in chat, for example "Save the report deck to Google Drive" or "Post the key takeaways to #research". Read-only tool calls run at once. Anything that uploads, posts, or changes something outside Quant OS appears as an approval card in the chat, and runs only when you click Approve.
+
+The ready-made connectors use each provider's hosted MCP server and sign in with OAuth. An admin registers an OAuth client once and puts its id and secret in `backend/.env`: `GOOGLE_MCP_CLIENT_ID`/`GOOGLE_MCP_CLIENT_SECRET`, `SLACK_MCP_CLIENT_ID`/`SLACK_MCP_CLIENT_SECRET`, or `MICROSOFT_TENANT_ID` with `MICROSOFT_MCP_CLIENT_ID`/`MICROSOFT_MCP_CLIENT_SECRET`. Each card lists the provider's setup steps and the redirect URI to register (`PUBLIC_BASE_URL` + `/api/connectors/oauth/callback`). Slack only accepts HTTPS redirect URIs, so set `PUBLIC_BASE_URL` to an HTTPS address that reaches the backend. Google's Drive server is in Developer Preview. Microsoft's hosted OneDrive and SharePoint server is in preview and needs a Copilot licence, and its card can point at another Microsoft 365 MCP server instead. A custom MCP server needs only its streamable HTTP URL and an optional token. Tokens are encrypted at rest with `CONNECTOR_SECRET_KEY`, or with a key generated in `data/connectors.key` when that is unset.
+
+To rehearse without real accounts, run the stand-in server, which offers Drive- and Slack-like tools, and add `http://127.0.0.1:8765/mcp` with token `demo-token` as a custom server:
+
+```powershell
+cd backend
+.venv\Scripts\python.exe -m tests.mock_mcp_server --port 8765 --token demo-token
+```
+
+### Live quality: bot and fraud detection in a live Decipher survey
+
+Open the **Live quality** tab in a project and tick **Add tracking when this survey is programmed in Decipher** (or ask in chat, for example "program this survey in Decipher with bot and fraud detection"). Programming then embeds a tracker script and a hidden results page in the survey XML. While people take the survey, the tracker sends behaviour (keystrokes, mouse, scrolling, focus), open-end text, page timing, and grid answers to the bot-detection API from the `bot_detection_live` project (`BOT_DETECTION_API_BASE`, default the deployed Cloud Run service). On the final page it runs the composite check and writes the respondent id, session id, verdict, score, and risk into hidden `QOS_*` questions, so they are in the Decipher data file too. The tab refreshes every 8 seconds with totals and one row per respondent: behaviour verdict, open-end quality and reasons, fraud signals, straight-lining, and speeding. Straight-lining and speeding are computed in Quant OS from the page and grid data the tracker records. The survey id in the detection service is the project name; once a survey is live in Decipher that id is kept, so renaming the project does not split its responses. **Quality dashboard** (bottom left) shows every tracked survey with live tiles, starts over time, open-end quality, reasons for flags, a filterable respondent table, and a CSV export. Switch to **All surveys** to see surveys from other tools that use the same detection service.
+
+**Quality rules.** Each project starts on default rules. Change them under **Quality rules** in the Live quality tab before the survey goes live:
+- **Flagging rules** apply on the dashboard as soon as you save: the bot score threshold, the decisive bot signals (automated browser, scripted clicks, no mouse or keyboard, honeypot, open ends that appeared without typing), the speeder and straight-lining limits, which open-end reasons count as low quality, pasted answers, the fraud threshold, duplicates, and connections from cloud data centres.
+- **In-survey rules** are written into the survey the next time you program it in Decipher:
+  - By default a hidden check runs when page 2 is submitted. Respondents with an enabled decisive signal go to a Decipher termination (`QOS_EARLY`, `QOS_bot_term`). A score on its own never ends a survey.
+  - A short privacy notice opens the first page.
+
+To sign trackers so nobody can add fake sessions under a survey's name, set `BOT_DETECTION_TOKEN_SECRET` to the same value as the service's `TRACKING_TOKEN_SECRET`. Without it, surveys are not signed.
 
 Linux uses the same commands in a shell that allows `&&` if you prefer one line, but each command above also works alone.
 

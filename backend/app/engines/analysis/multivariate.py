@@ -38,10 +38,17 @@ def run_pca(frame: pd.DataFrame, plan: AnalysisPlan) -> AnalysisResult:
         }
         for index in range(n_components)
     }
+    ratios = [float(v) for v in model.explained_variance_ratio_]
+    pca_loadings = model.components_.T * np.sqrt(model.explained_variance_)
     return _done(
         plan,
         flow,
-        metrics={"explained_variance_ratio": [float(v) for v in model.explained_variance_ratio_]},
+        metrics={
+            "explained_variance_ratio": ratios,
+            "total_variance_explained": float(sum(ratios)),
+            "weak_items": _weak_items(plan.variables, pca_loadings),
+            **adequacy(data),
+        },
         estimates=loadings,
         descriptive=_scores(plan, data, model.transform(scaled)),
     )
@@ -60,7 +67,11 @@ def run_efa(frame: pd.DataFrame, plan: AnalysisPlan) -> AnalysisResult:
     data, flow = prepare(frame, plan, plan.variables)
     n_components = int(plan.options.get("n_components") or min(2, data.shape[1]))
     scaled = StandardScaler().fit_transform(data)
-    model = FactorAnalysis(n_components=n_components, random_state=plan.random_seed)
+    # Reason: research reports read rotated loadings; varimax keeps factors uncorrelated.
+    rotation = "varimax" if n_components > 1 else None
+    model = FactorAnalysis(
+        n_components=n_components, rotation=rotation, random_state=plan.random_seed
+    )
     model.fit(scaled)
     # Reason: a factor's sign is arbitrary; point each one so most items load positively.
     signs = np.where(model.components_.sum(axis=1) < 0, -1.0, 1.0)
@@ -73,17 +84,69 @@ def run_efa(frame: pd.DataFrame, plan: AnalysisPlan) -> AnalysisResult:
         for index, name in enumerate(plan.variables)
     }
     warnings = [
-        "EFA uses sklearn FactorAnalysis. It is not a minimum-residual or principal-axis extraction."
+        "EFA uses sklearn FactorAnalysis"
+        + (" with varimax rotation" if rotation else "")
+        + ". It is not a minimum-residual or principal-axis extraction."
     ]
+    by_factor = [float(value) for value in (loadings**2).sum(axis=0) / len(plan.variables)]
+    metrics = {
+        "variance_explained": by_factor,
+        "total_variance_explained": float(sum(by_factor)),
+        "weak_items": _weak_items(plan.variables, loadings),
+        **adequacy(data),
+    }
     if flow["valid_n"] < 5 * len(plan.variables):
         warnings.append("The sample is small relative to the number of items.")
     return _done(
         plan,
         flow,
+        metrics=metrics,
         estimates=estimates,
         warnings=warnings,
         descriptive=_scores(plan, data, model.transform(scaled)),
     )
+
+
+def adequacy(data: pd.DataFrame) -> dict[str, float]:
+    """Kaiser-Meyer-Olkin measure and Bartlett's test of sphericity.
+
+    Args:
+        data: Complete item responses.
+
+    Returns:
+        ``kmo`` and ``bartlett_p_value``, or an empty dictionary when undefined.
+    """
+    from scipy import stats
+
+    rows, items = data.shape
+    if items < 2 or rows <= items:
+        return {}
+    corr = np.corrcoef(data.to_numpy(dtype=float), rowvar=False)
+    if not np.isfinite(corr).all():
+        return {}
+    inverse = np.linalg.pinv(corr)
+    scale = np.sqrt(np.outer(np.diag(inverse), np.diag(inverse)))
+    partial = -inverse / scale
+    off = ~np.eye(items, dtype=bool)
+    r2 = float((corr[off] ** 2).sum())
+    p2 = float((partial[off] ** 2).sum())
+    result = {"kmo": r2 / (r2 + p2) if r2 + p2 else 0.0}
+    sign, logdet = np.linalg.slogdet(corr)
+    if sign > 0:
+        statistic = -(rows - 1 - (2 * items + 5) / 6) * logdet
+        result["bartlett_p_value"] = float(stats.chi2.sf(statistic, items * (items - 1) / 2))
+    return result
+
+
+def _weak_items(names: list[str], loadings: np.ndarray) -> list[str]:
+    """Items whose largest absolute loading is under the research minimum."""
+    from app.engines.analysis.standards import MIN_LOADING
+
+    return [
+        name
+        for index, name in enumerate(names)
+        if float(np.abs(loadings[index]).max()) < MIN_LOADING
+    ]
 
 
 def _scores(plan: AnalysisPlan, data: pd.DataFrame, scores: np.ndarray) -> dict:

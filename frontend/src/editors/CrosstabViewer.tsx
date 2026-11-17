@@ -1,4 +1,5 @@
 import { crosstabTable, downloadUrl } from "../api";
+import { ChartGallery } from "./ChartGallery";
 import { ProvenancePanel } from "./ProvenancePanel";
 import { bookTables, exceptionLines, filterTables, type CrosstabTable } from "./model";
 import { useEffect, useState } from "react";
@@ -44,6 +45,7 @@ export function CrosstabViewer({
   const shown = current?.rows ? current : loaded;
   return (
     <div className="space-y-3">
+      <ChartGallery content={content} />
       <label className="block text-sm" htmlFor="table-search">Search tables</label>
       <input
         id="table-search"

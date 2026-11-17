@@ -73,6 +73,9 @@ class AnalysisStep(BaseModel):
     var_b: str = ""
     # Reason: 0 means the user did not choose k. The run picks it by silhouette.
     k: int = 0
+    # Reason: 0 means the standard segment range (4-8) is tested.
+    k_min: int = 0
+    k_max: int = 0
     codes: list[str] = Field(default_factory=list)
     # Reason: used only when the method name has no built-in procedure.
     procedure: str = ""
@@ -98,6 +101,8 @@ class AnalysisWorkflow(BaseModel):
     status: Literal["ready", "clarification_needed"] = "ready"
     clarification: str = ""
     missing_choices: list[str] = Field(default_factory=list)
+    # Reason: research standards the server applied or noticed after planning.
+    standards: list[str] = Field(default_factory=list)
     # Reason: filled after planning, when the method has no built-in runner.
     program: str = ""
 

@@ -12,7 +12,9 @@ _OFF_SCALE = re.compile(
     r"\b(?:do\s*n[o']?t|dont|did\s*n[o']?t)\s+know\b|\bnot\s+sure\b|\bunsure\b|"
     r"\bcan'?t\s+say\b|\bcannot\s+say\b|\bno\s+opinion\b|\bprefer\s+not\b|"
     r"\brather\s+not\b|\brefused?\b|\bnot\s+applicable\b|^\s*n/?a\s*$|"
-    r"\bdo\s*n[o']?t\s+remember\b|\bcan'?t\s+remember\b|\bno\s+answer\b",
+    r"\bdo\s*n[o']?t\s+remember\b|\bcan'?t\s+remember\b|\bno\s+answer\b|"
+    r"\bnot\s+enough\s+(?:experience|information)\b|\binsufficient\s+experience\b|"
+    r"\bno\s+experience\b|\bhave\s*n[o']?t\s+used\b|\bnever\s+used\b",
     re.I,
 )
 

@@ -5,10 +5,14 @@ from typing import Any
 
 import pandas as pd
 
+from app.engines.analysis import standards as std
 from app.engines.analysis.common import prepare_clustering, versions
 from app.engines.analysis.compile import canonical_method
+from app.engines.analysis.guardrails import flag_warnings, review_runs
+from app.engines.analysis.plots import clean_specs, method_charts, workflow_charts
 from app.engines.analysis.procedures import family, is_segmentation, nominal_columns
 from app.engines.analysis.registry import run_plan
+from app.engines.analysis.standards import rule_lines
 from app.engines.analysis.steps import (
     apply_bands,
     apply_box,
@@ -129,10 +133,10 @@ def execute_workflow(
                 current.model_copy(update={"variables": features}),
                 nominal_columns(meta, features),
             )
-            k, scores = choose_k(working, plan)
-            chosen = {"k": k, "silhouette_by_k": scores}
+            k, scores, detail = choose_k(working, plan, current.k_min, current.k_max)
+            chosen = {"k": k, "silhouette_by_k": scores, **detail}
             current = current.model_copy(update={"k": k})
-            warnings.append(f"Silhouette chose k={k}.")
+            warnings.append(_k_note(k, scores, detail))
             step_logs.append(_log(current, chosen))
         elif current.kind == "method":
             if current.split_by:
@@ -175,6 +179,8 @@ def execute_workflow(
     if not runs:
         raise AppError("The plan needs an analysis method.", "bad_plan")
     resolved = resolved.model_copy(update={"steps": steps})
+    checks = review_runs(runs, chosen, resolved.weight_variable)
+    warnings.extend(flag_warnings(checks))
     payload = _combine(runs, resolved, metrics, warnings, chosen)
     payload["diagnostics"].update(
         {
@@ -182,11 +188,39 @@ def execute_workflow(
             "profile_tables": profile_tables,
             "chosen_k": chosen,
             "comparisons": comparisons,
+            "quality_checks": checks,
+            "standards": rule_lines(),
         }
     )
+    labels = {str(item.get("name")): item.get("value_labels") or {} for item in meta}
+    specs = [
+        spec
+        for run in runs
+        for spec in method_charts(
+            canonical_method(run.result.method or run.step.method),
+            run.step,
+            run.group,
+            run.result,
+            labels,
+        )
+    ]
+    specs += workflow_charts(chosen, profile_tables, comparisons)
+    payload["charts"], _ = clean_specs(specs)
     payload["seed"] = workflow.random_seed
     payload["resolved_workflow"] = resolved.model_dump(mode="json")
     return _jsonable(payload)
+
+
+def _k_note(k: int, scores: dict[str, float], detail: dict[str, Any]) -> str:
+    """Say which segment counts were tried and why k won."""
+    low, high = detail["tested"]
+    note = f"Tested {low} to {high} segments; k={k} had the best silhouette ({scores[str(k)]:.3f})"
+    if detail["size_rule_met"]:
+        return note + f" with every segment at least {std.MIN_SEGMENT_SHARE:.0%} of the base."
+    return (
+        note
+        + f". No solution kept every segment at {std.MIN_SEGMENT_SHARE:.0%} of the base or more."
+    )
 
 
 def _saved_step(step: AnalysisStep, current: AnalysisStep) -> AnalysisStep:
@@ -564,11 +598,10 @@ def _run_method(
             step = step.model_copy(update={"k": int(chosen["k"])})
         else:
             plan = clustering_plan(workflow, step, nominal_columns(variables, step.variables))
-            k, scores = choose_k(frame, plan)
+            k, scores, detail = choose_k(frame, plan, step.k_min, step.k_max)
             step = step.model_copy(update={"k": k})
-            chosen["k"] = k
-            chosen["silhouette_by_k"] = scores
-            notes.append(f"Silhouette chose k={k}.")
+            chosen.update({"k": k, "silhouette_by_k": scores, **detail})
+            notes.append(_k_note(k, scores, detail))
     weight = workflow.weight_variable or None
     dependent = step.dependent or None
     options: dict[str, Any] = {"k": step.k} if step.k else {}

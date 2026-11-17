@@ -225,6 +225,13 @@ async def upload_file(
     if suffix in {"sav", "zsav"}:
         dataset = ingest_spss(db, storage, settings, project_id, row.id)
         dataset_id = dataset.id
+        db.commit()
+        from app.services.report_triggers import schedule_data_stage
+
+        # Reason: new survey data updates the report plan (cleaning, then bases) when one exists.
+        await schedule_data_stage(
+            settings, request.app.state.session_factory, storage, db, project_id
+        )
     elif suffix == "xlsx":
         from app.services.workbook_ingest import ingest_workbook
 
@@ -252,6 +259,10 @@ def download_file(file_id: str, request: Request, db: Session = Depends(get_db))
     """
     row = FileRepository(db).get(file_id)
     path = request.app.state.storage.resolve(row.project_id, row.storage_relpath)
+    from app.learning.capture import record_download
+
+    record_download(db, row)
+    db.commit()
     return FileResponse(path, filename=row.filename, media_type=row.media_type)
 
 

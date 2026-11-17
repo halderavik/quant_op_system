@@ -16,11 +16,13 @@ from app.engines.analysis.compile import (
     compile_script,
     direct_workflow,
     ensure_runnable,
+    merge_custom_chain,
     needs_generated_program,
     referenced_names,
     render_plan,
     uses_generated_program,
 )
+from app.engines.analysis.guardrails import apply_standards
 from app.engines.analysis.profile import column_briefs
 from app.engines.analysis.program_run import ProgramLaunch, run_program_with_repair
 from app.engines.analysis.report import build_report, workflow_summary
@@ -30,6 +32,7 @@ from app.errors import AppError
 from app.repositories.records import ArtifactRepository, ProjectRepository
 from app.sandbox.runner import docker_available, run_script
 from app.schemas.analysis import AnalysisResult, AnalysisWorkflow
+from app.services.chart_files import store_charts
 from app.services.execute import _active_dataset, load_frame
 from app.services.jobs import execute_job
 from app.services.storage import Storage
@@ -121,7 +124,12 @@ def require_analysis_output(job_dir: Path, outcome: dict[str, Any]) -> dict[str,
             "The analysis script did not write a result. No report was published.",
             "sandbox_failed",
         )
-    return json.loads(path.read_text(encoding="utf-8"))
+    raw = path.read_bytes()
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except UnicodeDecodeError:
+        # A script that wrote with the Windows code page; its text is still readable.
+        return json.loads(raw.decode("cp1252", errors="replace"))
 
 
 def run_compiled_workflow(
@@ -207,6 +215,7 @@ async def run_planned_analysis(
             dataset_id=dataset.id,
             session_id=session_id,
         )
+    workflow = merge_custom_chain(workflow)
     if needs_generated_program(workflow):
         on_stage("Writing the analysis script")
         program = await propose_program(
@@ -218,6 +227,7 @@ async def run_planned_analysis(
             session_id=session_id,
         )
         workflow = attach_program(workflow, program)
+    workflow = apply_standards(workflow, request, columns)
     ensure_runnable(workflow, columns)
     on_stage("Running the analysis in the sandbox")
     script = compile_script(workflow)
@@ -276,7 +286,8 @@ async def run_planned_analysis(
     checks = validate_report(report, result.model_dump(mode="json"))
     gate = summarize(checks)
     plan_text = render_plan(workflow, _checked_counts(briefs, referenced_names(workflow)))
-    book = workbook_bytes(workflow, payload, report)
+    drawn = store_charts(db, storage, project_id, payload.get("charts"), "analysis")
+    book = workbook_bytes(workflow, payload, report, drawn["images"])
     plan_id = _write_export(
         db, storage, project_id, "analysis_plan.md", plan_text.encode("utf-8"), "text/markdown"
     )
@@ -302,6 +313,11 @@ async def run_planned_analysis(
             "plan_file_id": plan_id,
             "script_file_id": script_id,
             "workbook_file_id": workbook_id,
+            "charts": drawn["charts"],
+            "chart_file_id": drawn["chart_file_id"],
+            "charts_zip_file_id": drawn["charts_zip_file_id"],
+            "chart_notes": drawn["notes"],
+            "chart_specs": drawn["specs"],
             "provenance": {
                 "isolation": isolation,
                 "warning": warning,

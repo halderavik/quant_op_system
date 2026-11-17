@@ -22,7 +22,7 @@ export const STAGES: { id: StageId; label: string; types: string[] }[] = [
   {
     id: "analysis",
     label: "Analysis and reporting",
-    types: ["tabspec", "crosstab", "analysis", "chart", "codeframe", "coding"],
+    types: ["report_plan", "report", "tabspec", "crosstab", "analysis", "chart", "codeframe", "coding"],
   },
   { id: "notes", label: "Notes and other", types: ["note"] },
 ];
@@ -95,6 +95,7 @@ const FILE_KEYS: [key: string, label: string][] = [
   ["workbook_file_id", "Workbook"],
   ["plan_file_id", "Plan"],
   ["script_file_id", "Script"],
+  ["charts_zip_file_id", "All charts"],
   ["chart_file_id", "Chart image"],
 ];
 
@@ -122,7 +123,8 @@ export function artifactDownloads(artifact: OutputArtifact): Download[] {
   if (artifact.type === "decipher_survey" && typeof content.file_id === "string" && content.file_id) {
     downloads.push({ label: "XML", kind: "file", fileId: content.file_id });
   }
-  for (const [key, label] of FILE_KEYS) {
+  for (const [key, baseLabel] of FILE_KEYS) {
+    const label = artifact.type === "report" && key === "export_file_id" ? "PowerPoint" : baseLabel;
     const value = content[key];
     if (typeof value === "string" && value) {
       downloads.push({ label, kind: "file", fileId: value });

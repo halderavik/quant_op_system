@@ -25,6 +25,10 @@ class StudyContext(BaseModel):
     objectives: list[str] = Field(default_factory=list)
     notes: dict[str, str] = Field(default_factory=dict)
     store_traces: bool = False
+    # Reason: a project can keep its edits and ratings out of SRAS learning.
+    learning_opt_out: bool = False
+    # Reason: live bot and fraud tracking settings ({"enabled": bool, "survey_id": str}).
+    live_quality: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProjectCreate(BaseModel):

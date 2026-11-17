@@ -108,49 +108,99 @@ def run_ordinal(frame: pd.DataFrame, plan: AnalysisPlan) -> AnalysisResult:
 
 
 def run_key_driver(frame: pd.DataFrame, plan: AnalysisPlan) -> AnalysisResult:
-    """Relative importance from absolute standardized regression coefficients, scaled to 100.
+    """Driver importance from Johnson's relative weights, ranked and scaled to 100.
+
+    Relative weights split R-squared among correlated drivers, so a driver that
+    overlaps with another is not credited twice the way squared betas would be.
+    Standardized OLS coefficients and p-values are reported beside them.
 
     Args:
         frame: Source data.
         plan: Plan with one dependent variable and predictors.
 
     Returns:
-        Importance shares and the underlying standardized coefficients.
+        Importance shares, ranks, standardized coefficients, R-squared, and VIF.
+
+    Raises:
+        AppError: A driver has no variance, two drivers are identical, or too few rows remain.
     """
     dependent = plan.dependent.name if plan.dependent else ""
-    data, flow = prepare(frame, plan, [dependent, *plan.predictors])
+    predictors = list(plan.predictors)
+    data, flow = prepare(frame, plan, [dependent, *predictors])
+    if len(data) <= len(predictors) + 1:
+        raise AppError("Too few complete respondents for this many drivers.", "small_sample")
     scaled = (data - data.mean()) / data.std(ddof=0).replace(0, np.nan)
     if scaled.isna().any().any():
         raise AppError("A key-driver variable has zero variance.", "bad_plan")
-    model = sm.OLS(
-        scaled[dependent], sm.add_constant(scaled[plan.predictors], has_constant="add")
-    ).fit()
-    coefs = {name: float(model.params[name]) for name in plan.predictors}
-    absolute = {name: abs(value) for name, value in coefs.items()}
-    total = sum(absolute.values())
-    if total == 0:
-        raise AppError("Key-driver coefficients are all zero.", "model_failed")
-    shares = {name: 100.0 * value / total for name, value in absolute.items()}
+    model = sm.OLS(scaled[dependent], sm.add_constant(scaled[predictors], has_constant="add")).fit()
+    raw = relative_weights(data[[dependent, *predictors]].corr().to_numpy())
+    total = float(raw.sum())
+    if total <= 0:
+        raise AppError("The drivers explain none of the outcome.", "model_failed")
+    order = sorted(range(len(predictors)), key=lambda index: -raw[index])
+    rank = {predictors[index]: position + 1 for position, index in enumerate(order)}
     estimates = {
-        name: {"standardized_coefficient": coefs[name], "importance_pct": shares[name]}
-        for name in plan.predictors
+        name: {
+            "importance_pct": 100.0 * float(raw[index]) / total,
+            "relative_weight": float(raw[index]),
+            "rank": rank[name],
+            "standardized_coefficient": float(model.params[name]),
+            "p_value": float(model.pvalues[name]),
+        }
+        for index, name in enumerate(predictors)
     }
+    ranking = [
+        {
+            "rank": rank[predictors[index]],
+            "driver": predictors[index],
+            "importance_pct": estimates[predictors[index]]["importance_pct"],
+            "standardized_coefficient": estimates[predictors[index]]["standardized_coefficient"],
+        }
+        for index in order
+    ]
     return AnalysisResult(
         method=plan.method,
         sample_flow=flow,
         model_estimates=estimates,
         metrics={
             "r_squared": float(model.rsquared),
-            "importance_definition": "abs_standardized_ols_share_of_100",
+            "importance_definition": "johnson_relative_weights_share_of_100",
+            "vif": _vif(data[predictors]),
         },
+        descriptive={"importance_ranking": ranking},
         warnings=[
-            "Importance is the absolute standardized OLS coefficient, normalized to sum to 100. "
-            "It is regression-based, not a causal share."
+            "Importance is Johnson's relative weight: each driver's share of R-squared, scaled "
+            "to 100. It is regression-based, not a causal share."
         ],
         software_versions=versions(),
         seed=plan.random_seed,
         script=script_for(plan),
     )
+
+
+def relative_weights(corr: np.ndarray) -> np.ndarray:
+    """Johnson's (2000) relative weights from a correlation matrix.
+
+    Args:
+        corr: Correlation matrix with the outcome first, then the drivers.
+
+    Returns:
+        Raw weights per driver. They sum to the model R-squared.
+
+    Raises:
+        AppError: Two drivers are perfectly correlated.
+    """
+    rxx = corr[1:, 1:]
+    rxy = corr[1:, 0]
+    values, vectors = np.linalg.eigh(rxx)
+    if values.min() <= 1e-10:
+        raise AppError(
+            "Two or more drivers are perfectly correlated, so their importance cannot be split.",
+            "bad_plan",
+        )
+    half = vectors @ np.diag(np.sqrt(values)) @ vectors.T
+    beta = np.linalg.solve(half, rxy)
+    return (half**2) @ (beta**2)
 
 
 def _fit_ols(

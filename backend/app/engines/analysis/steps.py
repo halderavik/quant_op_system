@@ -12,6 +12,7 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 
+from app.engines.analysis import standards as std
 from app.engines.analysis.common import prepare_clustering
 from app.engines.analysis.procedures import family, is_segmentation, normalize_method, partition
 from app.engines.derived import in_codes
@@ -202,73 +203,73 @@ def apply_box(
     return out, log, alias
 
 
-def choose_k(frame: pd.DataFrame, plan: AnalysisPlan) -> tuple[int, dict[str, float]]:
-    """Pick k from 2 through 6 by the highest silhouette.
+def choose_k(
+    frame: pd.DataFrame, plan: AnalysisPlan, k_min: int = 0, k_max: int = 0
+) -> tuple[int, dict[str, float], dict[str, Any]]:
+    """Pick the segment count by silhouette inside the research range.
+
+    Every k from ``k_min`` to ``k_max`` (4 to 8 by default) is fitted. The
+    chosen k has the highest silhouette among solutions whose smallest
+    segment is at least the minimum share of the base. When no solution
+    meets that share, the highest silhouette wins and the detail says so.
 
     Args:
         frame: Working data, already imputed and recoded.
         plan: Clustering plan. ``options.k`` is ignored.
+        k_min: Smallest k to try; 0 uses the standard.
+        k_max: Largest k to try; 0 uses the standard.
 
     Returns:
-        Chosen k and the silhouette at each k that was tried.
+        Chosen k, the silhouette at each k, and the range and smallest shares tried.
 
     Raises:
-        AppError: Fewer than three complete rows remain.
+        AppError: Too few complete rows remain.
     """
     data, _, _ = prepare_clustering(frame, plan)
-    kind = family(plan.method)
-    upper = min(6, len(data) - 1)
+    lower = k_min or std.SEGMENT_K_MIN
+    upper = min(k_max or std.SEGMENT_K_MAX, len(data) - 1)
+    lower = min(lower, upper)
     if upper < 2:
         raise AppError(
             "Clustering needs at least three complete rows before k can be chosen.",
             "small_sample",
         )
-    if kind in {None, "kmeans"}:
-        return _kmeans_k(data, plan.random_seed, upper)
+    kind = family(plan.method)
+    scaled = StandardScaler().fit_transform(data) if kind in {None, "kmeans"} else None
     categorical = set(plan.options.get("categorical") or [])
     scores: dict[str, float] = {}
-    best_k = 2
-    best_score = -1.0
-    for k in range(2, upper + 1):
-        _labels, metrics, _notes = partition(data, plan.method, k, plan.random_seed, categorical)
-        score = metrics.get("silhouette")
+    shares: dict[str, float] = {}
+    for k in range(max(lower, 2), upper + 1):
+        if scaled is not None:
+            labels = KMeans(n_clusters=k, random_state=plan.random_seed, n_init=10).fit_predict(
+                scaled
+            )
+            score: float | None = float(silhouette_score(scaled, labels))
+        else:
+            labels, metrics, _notes = partition(data, plan.method, k, plan.random_seed, categorical)
+            raw = metrics.get("silhouette")
+            score = None if raw is None else float(raw)
         if score is None:
             continue
-        scores[str(k)] = float(score)
-        if float(score) > best_score:
-            best_k = k
-            best_score = float(score)
+        scores[str(k)] = score
+        counts = np.bincount(np.asarray(labels)[np.asarray(labels) >= 0].astype(int))
+        counts = counts[counts > 0]
+        shares[str(k)] = float(counts.min() / len(labels)) if len(counts) else 0.0
     if not scores:
         raise AppError(
             "Silhouette could not be computed for this segmentation.",
             "small_sample",
         )
-    return best_k, scores
-
-
-def _kmeans_k(data: pd.DataFrame, seed: int, upper: int) -> tuple[int, dict[str, float]]:
-    """Pick k for k-means by silhouette on standardized features.
-
-    Args:
-        data: Complete numeric features.
-        seed: Random seed.
-        upper: Largest k to try.
-
-    Returns:
-        Chosen k and the silhouette at each k.
-    """
-    scaled = StandardScaler().fit_transform(data)
-    scores: dict[str, float] = {}
-    best_k = 2
-    best_score = -1.0
-    for k in range(2, upper + 1):
-        labels = KMeans(n_clusters=k, random_state=seed, n_init=10).fit_predict(scaled)
-        score = float(silhouette_score(scaled, labels))
-        scores[str(k)] = score
-        if score > best_score:
-            best_k = k
-            best_score = score
-    return best_k, scores
+    eligible = {k: v for k, v in scores.items() if shares[k] >= std.MIN_SEGMENT_SHARE}
+    pool = eligible or scores
+    best = max(pool, key=lambda key: pool[key])
+    tried = sorted(int(key) for key in scores)
+    detail = {
+        "tested": [tried[0], tried[-1]],
+        "smallest_share_by_k": shares,
+        "size_rule_met": bool(eligible),
+    }
+    return int(best), scores, detail
 
 
 def listwise_count(frame: pd.DataFrame, variables: list[str]) -> dict[str, Any]:

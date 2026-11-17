@@ -2,12 +2,14 @@ import { clsx } from "clsx";
 import {
   BarChart3,
   ClipboardList,
+  ListChecks,
   Code2,
   Database,
   Download as DownloadIcon,
   FileText,
   Layers,
   MessageSquareText,
+  Presentation,
   Search,
   Sheet,
   ShieldCheck,
@@ -35,6 +37,8 @@ const ICONS: Record<string, LucideIcon> = {
   chart: BarChart3,
   codeframe: Tags,
   coding: MessageSquareText,
+  report_plan: ListChecks,
+  report: Presentation,
   note: StickyNote,
 };
 

@@ -288,3 +288,54 @@ async def test_failing_script_is_rewritten_once_and_then_not_published(
     assert caught.value.code == "sandbox_failed"
     assert len(calls) == 2
     assert not (tmp_path / "job2" / "result.json").exists()
+
+
+def test_grid_wide_correspondence_gets_its_own_script() -> None:
+    """Correspondence over a whole grid has no var_a/var_b pair, so it is written as a script."""
+    grid = _workflow(method="correspondence")
+    grid.steps[0].variables = ["Q7r1", "Q7r2", "Q8r1", "Q8r2"]
+    assert needs_generated_program(grid) is True
+    pair = _workflow(method="correspondence")
+    pair.steps[0].var_a, pair.steps[0].var_b = "satisfaction", "gender"
+    assert needs_generated_program(pair) is False
+
+
+def test_result_written_in_the_windows_code_page_still_loads(tmp_path: Path) -> None:
+    """A generated script that wrote cp1252 (an en dash) does not fail the analysis."""
+    from app.services.analysis_run import require_analysis_output
+
+    (tmp_path / "result.json").write_bytes('{"label": "18–34"}'.encode("cp1252"))
+    outcome = {"status": "completed", "exit_code": 0}
+    assert require_analysis_output(tmp_path, outcome)["label"] == "18–34"
+
+
+def test_custom_methods_in_a_chain_become_one_script() -> None:
+    """Two methods with no built-in runner are joined into one generated step."""
+    from app.engines.analysis.compile import merge_custom_chain
+
+    workflow = _workflow(method="kruskal_wallis")
+    workflow.steps.insert(
+        1,
+        AnalysisStep(
+            step_id="s1b",
+            kind="method",
+            method="dunn_test",
+            variables=["satisfaction", "gender"],
+            reason="Post-hoc pairs.",
+        ),
+    )
+    merged = merge_custom_chain(workflow)
+    assert [s.kind for s in merged.steps] == ["method", "report"]
+    assert needs_generated_program(merged) is True
+    builtin = _workflow(method="anova")
+    assert merge_custom_chain(builtin) is builtin
+
+
+def test_a_multi_line_request_stays_a_comment_in_the_script() -> None:
+    from app.engines.analysis.compile import compile_script
+
+    workflow = _workflow(method="anova")
+    workflow.objective = "Drivers of Q18\n(Columns: dependent = Q18.)"
+    script = compile_script(workflow)
+    compile(script, "analysis.py", "exec")
+    assert "# (Columns: dependent = Q18.)" in script

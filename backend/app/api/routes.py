@@ -11,8 +11,11 @@ from sqlalchemy.orm import Session
 from app.agents.model_router import ModelRouter
 from app.agents.orchestrator import Orchestrator
 from app.api.deps import get_db
+from app.api.routes_connectors import router as connectors_router
 from app.api.routes_jobs import router as jobs_router
+from app.api.routes_learning import router as learning_router
 from app.api.routes_library import router as library_router
+from app.api.routes_live_quality import router as live_quality_router
 from app.api.routes_sample import router as sample_router
 from app.errors import AppError
 from app.repositories.records import (
@@ -26,6 +29,9 @@ router = APIRouter()
 router.include_router(library_router)
 router.include_router(sample_router)
 router.include_router(jobs_router)
+router.include_router(learning_router)
+router.include_router(connectors_router)
+router.include_router(live_quality_router)
 
 
 @router.get("/artifacts/{artifact_id}/tables/{table_id}")

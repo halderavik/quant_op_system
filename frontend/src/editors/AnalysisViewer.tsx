@@ -1,4 +1,5 @@
 import { downloadUrl } from "../api";
+import { ChartGallery } from "./ChartGallery";
 import { ProvenancePanel } from "./ProvenancePanel";
 
 type Report = {
@@ -16,6 +17,8 @@ type Step = {
   method?: string;
   strategy?: string;
   k?: number;
+  k_min?: number;
+  k_max?: number;
   box?: number;
 };
 
@@ -23,8 +26,28 @@ type Workflow = {
   objective?: string;
   steps?: Step[];
   assumptions?: string[];
+  standards?: string[];
   random_seed?: number;
 };
+
+type QualityCheck = { area?: string; check?: string; status?: string; detail?: string };
+type RankRow = { rank?: number; driver?: string; importance_pct?: number; standardized_coefficient?: number };
+type Diagnostics = { quality_checks?: QualityCheck[] };
+
+/** Collect driver rankings from a single fit or from each fit of a multi-step run. */
+export function driverRankings(descriptive: Record<string, unknown> | undefined): [string, RankRow[]][] {
+  if (!descriptive) return [];
+  const own = descriptive.importance_ranking;
+  if (Array.isArray(own) && own.length) return [["Key drivers", own as RankRow[]]];
+  return Object.entries(descriptive).flatMap(([name, block]) => {
+    const ranking = (block as { importance_ranking?: unknown } | null)?.importance_ranking;
+    return Array.isArray(ranking) && ranking.length ? [[name, ranking as RankRow[]] as [string, RankRow[]]] : [];
+  });
+}
+
+function fixed(value: number | undefined, digits: number): string {
+  return typeof value === "number" ? value.toFixed(digits) : "";
+}
 
 function stepSettings(step: Step): string {
   const parts: string[] = [];
@@ -32,6 +55,7 @@ function stepSettings(step: Step): string {
   if (step.method) parts.push(step.method);
   if (step.strategy) parts.push(step.strategy);
   if (step.k) parts.push(`k=${step.k}`);
+  else if (step.k_min || step.k_max) parts.push(`test k=${step.k_min ?? 2}–${step.k_max ?? step.k_min}`);
   if ((step.kind === "top_box" || step.kind === "bottom_box") && step.box) {
     parts.push(`box=${step.box}`);
   }
@@ -48,7 +72,14 @@ export function AnalysisViewer({
   onChange: (next: Record<string, unknown>) => void;
 }) {
   const report = (content.report ?? {}) as Report;
-  const result = (content.result ?? {}) as { script?: string; diagnostics?: unknown };
+  const result = (content.result ?? {}) as {
+    script?: string;
+    diagnostics?: unknown;
+    descriptive?: Record<string, unknown>;
+  };
+  const checks = ((result.diagnostics ?? {}) as Diagnostics).quality_checks ?? [];
+  const flagged = checks.filter((item) => item.status === "flag").length;
+  const rankings = driverRankings(result.descriptive);
   const workflow = (content.workflow ?? {}) as Workflow;
   const sections = report.sections ?? [];
   const steps = workflow.steps ?? [];
@@ -74,6 +105,74 @@ export function AnalysisViewer({
           </ol>
         </section>
       )}
+      <ChartGallery content={content} />
+      {(workflow.standards ?? []).length > 0 && (
+        <section>
+          <h3 className="font-semibold">Research standards applied</h3>
+          <ul className="mt-1 list-disc pl-5 text-ink-2">
+            {(workflow.standards ?? []).map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {checks.length > 0 && (
+        <section>
+          <h3 className="font-semibold">
+            Quality checks{" "}
+            <span className="font-normal text-ink-2">
+              ({checks.length - flagged} passed, {flagged} flagged)
+            </span>
+          </h3>
+          <table className="mt-1 w-full border-collapse text-left text-xs">
+            <thead>
+              <tr className="border-b border-line">
+                <th className="py-1 pr-2">Area</th>
+                <th className="py-1 pr-2">Check</th>
+                <th className="py-1 pr-2">Status</th>
+                <th className="py-1">Detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              {checks.map((item, index) => (
+                <tr key={index} className="border-b border-line align-top">
+                  <td className="py-1 pr-2">{item.area}</td>
+                  <td className="py-1 pr-2">{item.check}</td>
+                  <td className={`py-1 pr-2 font-medium ${item.status === "flag" ? "text-warn" : "text-success"}`}>
+                    {item.status === "flag" ? "Flag" : "Pass"}
+                  </td>
+                  <td className="py-1">{item.detail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+      {rankings.map(([name, ranking]) => (
+        <section key={name}>
+          <h3 className="font-semibold">Driver importance{rankings.length > 1 ? ` — ${name}` : ""}</h3>
+          <table className="mt-1 w-full border-collapse text-left text-xs">
+            <thead>
+              <tr className="border-b border-line">
+                <th className="py-1 pr-2">Rank</th>
+                <th className="py-1 pr-2">Driver</th>
+                <th className="py-1 pr-2">Importance</th>
+                <th className="py-1">Std. coefficient</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ranking.map((row) => (
+                <tr key={row.driver} className="border-b border-line">
+                  <td className="py-1 pr-2">{row.rank}</td>
+                  <td className="py-1 pr-2">{row.driver}</td>
+                  <td className="py-1 pr-2">{fixed(row.importance_pct, 1)}%</td>
+                  <td className="py-1">{fixed(row.standardized_coefficient, 3)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ))}
       <div className="flex flex-wrap gap-4">
         {downloads.map(([label, fileId]) =>
           typeof fileId === "string" && fileId ? (
@@ -128,9 +227,6 @@ export function AnalysisViewer({
         <h3 className="font-semibold">Script</h3>
         <pre className="overflow-auto whitespace-pre-wrap rounded-md border border-line bg-surface p-3 font-mono text-xs">{String(result.script ?? content.script ?? "")}</pre>
       </section>
-      {typeof content.chart_file_id === "string" && content.chart_file_id && (
-        <img alt={String(content.title ?? "Chart")} className="max-w-full rounded-md border border-line bg-white p-2" src={downloadUrl(content.chart_file_id)} />
-      )}
       {!sections.length && <p className="whitespace-pre-wrap">{report.rendered}</p>}
       <ProvenancePanel content={content} version={version} />
     </div>

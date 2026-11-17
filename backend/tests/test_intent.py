@@ -107,8 +107,7 @@ def test_follow_up_does_not_steal_a_table_or_a_note() -> None:
 def test_analysis_follow_up_is_not_a_questionnaire_edit() -> None:
     """Answering an analysis question resumes segmentation instead of editing a survey."""
     reply = (
-        "yes remove those 9 empty Q4 features and five empty profiling variables. "
-        "Then run the task"
+        "yes remove those 9 empty Q4 features and five empty profiling variables. Then run the task"
     )
     alone = _contract(reply, has_dataset=True)
     resumed = build_contract(

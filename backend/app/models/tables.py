@@ -171,3 +171,71 @@ class Job(Base):
     log_relpath: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class LearningEvent(Base):
+    """One signal SRAS can learn from: a user edit, a follow-up, a download, or a rating.
+
+    Rows hold structure, wording, and settings. They never hold respondent rows.
+    """
+
+    __tablename__ = "learning_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    artifact_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    artifact_type: Mapped[str] = mapped_column(String(40), default="")
+    # Reason: questionnaire_edit, analysis_run, analysis_followup, report_edit,
+    # artifact_edit, download, or feedback.
+    kind: Mapped[str] = mapped_column(String(40), index=True)
+    # Reason: "user" for panel saves, "chat" for edits asked for in chat.
+    actor: Mapped[str] = mapped_column(String(40), default="user")
+    from_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    to_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    instruction: Mapped[str] = mapped_column(Text, default="")
+    context: Mapped[dict] = mapped_column(JSON, default=dict)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ConnectorAccount(Base):
+    """One connected external tool (an MCP server) and its encrypted credentials.
+
+    ``secret`` holds encrypted tokens. It is never returned by the API.
+    """
+
+    __tablename__ = "connector_accounts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # Reason: google_drive, slack, microsoft_365, or custom.
+    catalog_id: Mapped[str] = mapped_column(String(40), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    server_url: Mapped[str] = mapped_column(String(500), default="")
+    settings: Mapped[dict] = mapped_column(JSON, default=dict)
+    secret: Mapped[str] = mapped_column(Text, default="")
+    # Reason: disconnected, connected, or error.
+    status: Mapped[str] = mapped_column(String(40), default="disconnected")
+    tools: Mapped[list] = mapped_column(JSON, default=list)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ConnectorAction(Base):
+    """A connector call that changes something outside Quant OS and waits for approval."""
+
+    __tablename__ = "connector_actions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    task_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    account_id: Mapped[str] = mapped_column(String(36))
+    tool: Mapped[str] = mapped_column(String(200))
+    arguments: Mapped[dict] = mapped_column(JSON, default=dict)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    # Reason: pending, done, failed, or cancelled.
+    status: Mapped[str] = mapped_column(String(40), default="pending")
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
