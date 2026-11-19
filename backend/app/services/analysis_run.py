@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.agents.analysis_coder import attach_program, propose_program, revise_program
 from app.agents.analysis_planner import phrase_findings, propose_workflow
+from app.engines.analysis.guardrails import apply_standards
 from app.config import Settings
 from app.engines.analysis.compile import (
     compile_script,
@@ -227,6 +228,7 @@ async def run_planned_analysis(
             session_id=session_id,
         )
         workflow = attach_program(workflow, program)
+    workflow = apply_standards(workflow, request, columns)
     workflow = apply_standards(workflow, request, columns)
     ensure_runnable(workflow, columns)
     on_stage("Running the analysis in the sandbox")

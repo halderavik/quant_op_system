@@ -207,7 +207,7 @@ async def upload_file(
     storage: Storage = request.app.state.storage
     safe = Storage.safe_filename(file.filename or "upload.bin")
     suffix = safe.lower().rsplit(".", 1)[-1]
-    allowed = {"sav", "zsav", "xlsx", "csv", "docx", "pdf", "txt", "md", "json"}
+    allowed = {"sav", "zsav", "xlsx", "csv", "docx", "pdf", "txt", "md", "json", "xml"}
     if suffix not in allowed:
         raise AppError(f"Unsupported file type '.{suffix}'.", "unsupported_file")
     relative = f"uploads/{new_id()}-{safe}"
@@ -396,6 +396,27 @@ def program_decipher_route(
     return program_decipher_survey(
         db, request.app.state.storage, project_id, request.app.state.settings
     )
+
+
+@router.post("/projects/{project_id}/decipher/upload")
+def upload_decipher_route(project_id: str, request: Request, db: Session = Depends(get_db)) -> dict:
+    """Upload the survey XML saved by the last programming run, after the person confirmed it.
+
+    Args:
+        project_id: Project id.
+        request: Current request.
+        db: Session.
+
+    Returns:
+        Summary, status, artifact id, file id, and survey path.
+    """
+    from app.services.decipher_program import upload_prepared_survey
+
+    outcome = upload_prepared_survey(
+        db, request.app.state.storage, project_id, request.app.state.settings
+    )
+    db.commit()
+    return outcome
 
 
 @router.post("/projects/{project_id}/questionnaires/decipher/preview-source")

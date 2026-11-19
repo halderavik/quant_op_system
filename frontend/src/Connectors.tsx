@@ -32,6 +32,7 @@ import { Badge, Button, IconButton } from "./ui";
 
 const ICONS: Record<string, typeof Plug> = {
   google_drive: HardDrive,
+  google_drive_api: HardDrive,
   slack: Hash,
   microsoft_365: Building2,
 };

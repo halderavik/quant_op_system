@@ -318,3 +318,100 @@ def test_use_this_questionnaire_is_a_fixed_route() -> None:
     for text in ("Use this questionnaire", "Import this survey", "please use the attached file"):
         assert product_lock(text) == "create_questionnaire", text
     assert product_lock("show me the crosstab of Q1 by gender") is None
+
+
+def test_routing_keeps_data_requests_and_confirms_uploads() -> None:
+    """Data requests are not imports; "upload it" goes to the Decipher step."""
+    from app.agents.intent import UPLOAD_CONFIRM, product_lock
+
+    assert product_lock("use this file to run crosstabs") != "create_questionnaire"
+    assert product_lock("upload my dataset file please and run crosstabs") != "create_questionnaire"
+    assert product_lock("Yes, upload it") == "program_decipher"
+    assert UPLOAD_CONFIRM.search("Yes, upload it")
+    assert not UPLOAD_CONFIRM.search("Program this survey in Decipher")
+
+
+def test_redo_runs_the_same_request_with_the_chosen_action(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A request answered as a note can be redone as an import of the attached questionnaire."""
+    project = create_project(client)
+    upload = client.post(
+        f"/api/projects/{project['id']}/files",
+        files={"file": ("coffee.docx", _questionnaire_docx(), DOCX_TYPE)},
+    )
+
+    async def _fake(*_args, **kwargs):
+        if kwargs["output_type"] is QuestionnaireFrame:
+            return QuestionnaireFrame(title="Coffee Habits Study")
+        return _section_from(kwargs["prompt"], [False])
+
+    monkeypatch.setattr("app.services.questionnaire_import.run_structured", _fake)
+    first = client.post(
+        f"/api/conversations/{project['conversation_id']}/messages",
+        json={"content": "Keep this for later", "file_ids": [upload.json()["file_id"]]},
+    ).json()
+    messages = client.get(f"/api/conversations/{project['conversation_id']}/messages").json()
+    assert messages[-1]["intent"] and messages[-1]["intent"] != "create_questionnaire"
+    redo = client.post(f"/api/tasks/{first['task_id']}/redo", json={"action": "import_exact"})
+    assert redo.status_code == 201, redo.text
+    task = client.get(f"/api/tasks/{redo.json()['task_id']}").json()
+    assert task["status"] in {"completed", "completed_with_warnings"}, task
+    assert task["contract"]["intent"] == "create_questionnaire"
+    messages = client.get(f"/api/conversations/{project['conversation_id']}/messages").json()
+    assert messages[-2]["content"] == "Redo as: Import the questionnaire as written"
+    assert "exactly as written" in messages[-1]["content"]
+    assert (
+        client.post(f"/api/tasks/{first['task_id']}/redo", json={"action": "nope"}).status_code
+        == 400
+    )
+
+
+def test_each_question_keeps_the_part_of_the_file_it_came_from() -> None:
+    """The review screen can show a question beside its source text."""
+    from app.engines.verbatim import attach_source_excerpts
+    from app.schemas.questionnaire import Question, Questionnaire
+
+    source = "Intro text\nS1. What is your age?\n1. Under 18\n2. 18+\nS2. Gender?\n1. Man\n2. Woman"
+    document = Questionnaire.model_validate(
+        {
+            "id": "q",
+            "title": "T",
+            "questions": [
+                Question(id="S1", type="single_select", text="What is your age?").model_dump(),
+                Question(id="S2", type="single_select", text="Gender?").model_dump(),
+                Question(id="X9", type="single_select", text="Added later").model_dump(),
+            ],
+        }
+    )
+    marked = attach_source_excerpts(document, source)
+    excerpts = [q.source_excerpt for q in marked.questions]
+    assert excerpts[0] == "S1. What is your age?\n1. Under 18\n2. 18+"
+    assert excerpts[1].startswith("S2. Gender?") and excerpts[2] is None
+
+
+def test_ids_in_a_labelled_qid_cell_start_sections():
+    """A questionnaire that names each id in a "QID" row is split at those questions."""
+    text = "\n".join(
+        [
+            "Overview",
+            "[TABLE]",
+            "| MARKET |",
+            "| QID | HID_COUNTRY |",
+            "| Capture the market. |",
+            "[/TABLE]",
+            "[TABLE]",
+            "| NON-DISCLOSURE AGREEMENT |",
+            "| QID | S_NDA |",
+            "| Do you agree? |",
+            "[/TABLE]",
+            "[TABLE]",
+            "| Question ID | S1 |",
+            "| How old are you? |",
+            "[/TABLE]",
+        ]
+    )
+    assert question_ids(text) == ["HID_COUNTRY", "S_NDA", "S1"]
+    header, sections = split_sections(text, budget=1)
+    assert header == "Overview"
+    assert [question_ids(section) for section in sections] == [["HID_COUNTRY"], ["S_NDA"], ["S1"]]

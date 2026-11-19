@@ -123,14 +123,20 @@ _SYNTHETIC_REQUEST = re.compile(
     re.I,
 )
 _DECIPHER_REQUEST = re.compile(
-    r"\bdecipher\b|\bsurvey xml\b|\bprogram(?:me)? (?:this |the )?survey\b",
+    r"\bdecipher\b|\bsurvey xml\b|\bprogram(?:me)? (?:this |the )?survey\b"
+    r"|^\s*(?:yes[,.!]?\s*)?(?:please\s+)?upload(?: it| the survey| this survey)?\s*[.!]?\s*$",
     re.I,
+)
+# Reason: confirms the upload of a survey that was programmed and is waiting for a click.
+UPLOAD_CONFIRM = re.compile(
+    r"^\s*(?:yes[,.!]?\s*)?(?:please\s+)?(?:go ahead and\s+)?upload\b", re.I
 )
 # Reason: "use this questionnaire" with an attached file imports it; the route model
 # sometimes reads the short message as a note.
 _USE_QUESTIONNAIRE = re.compile(
-    r"^\s*(?:please\s+)?(?:use|import|load|take|upload|work from|start from)\b[^.?!]{0,40}"
-    r"\b(?:questionnaire|survey|instrument|document|file|docx)\b",
+    r"^\s*(?:please\s+)?(?:use|import|work from|start from)\s+(?:this|the|my|our|attached|the attached)?"
+    r"\s*(?:attached\s+|uploaded\s+)?(?:questionnaire|survey|instrument|document|file|docx)\b"
+    r"(?![^.?!]*\b(?:dataset|data file|data|spss|sav|crosstabs?|tables?|analysis|analyze|charts?)\b)",
     re.I,
 )
 _SAMPLE_REQUEST = re.compile(

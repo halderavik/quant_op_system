@@ -7,7 +7,7 @@ export type FlowIssue = {
   question_id?: string | null;
 };
 
-export type OptionDraft = { code: string | number; label: string };
+export type OptionDraft = { code: string | number; label: string; exclusive?: boolean; anchor?: boolean; terminate?: boolean; open_text?: boolean };
 
 export type QuestionDraft = {
   id?: string;
@@ -18,6 +18,10 @@ export type QuestionDraft = {
   options?: OptionDraft[];
   matrix_items?: string[];
   programming?: Record<string, unknown> | null;
+  display_if?: unknown;
+  randomize_options?: boolean;
+  required?: boolean;
+  source_excerpt?: string | null;
 };
 
 export type TableDraft = {

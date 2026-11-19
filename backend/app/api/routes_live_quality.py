@@ -76,6 +76,36 @@ def put_live_quality(
     return _state(request, db, project_id)
 
 
+class UploadedXmlIn(BaseModel):
+    """A Decipher survey XML already uploaded to the project."""
+
+    file_id: str
+
+
+@router.post("/projects/{project_id}/live-quality/xml")
+def add_tracking_to_xml(
+    project_id: str, body: UploadedXmlIn, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    """Add tracking to an uploaded Decipher survey XML and make it the project's survey.
+
+    Args:
+        project_id: Project id.
+        body: The uploaded file.
+        request: Current request.
+        db: Session.
+
+    Returns:
+        The outcome summary and the live-quality state after the change.
+    """
+    from app.services.decipher_tracking_import import add_tracking_to_upload
+
+    outcome = add_tracking_to_upload(
+        db, request.app.state.storage, project_id, body.file_id, request.app.state.settings
+    )
+    db.commit()
+    return {**outcome, "state": _state(request, db, project_id)}
+
+
 @router.get("/projects/{project_id}/live-quality/results")
 async def get_live_results(
     project_id: str, request: Request, db: Session = Depends(get_db)

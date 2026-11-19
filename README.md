@@ -19,7 +19,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173 (the dev server listens on `localhost`, so `127.0.0.1` may refuse the connection). Copy `.env.example` to `backend/.env` and set `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. Questionnaire drafting uses OpenAI. Open-end coding and codeframe proposals use Claude. Both keys stay on the server. A named crosstab, a tab spec that is already saved, and registered statistics run without them. Building a tab spec calls the validator, and the spec is saved only after each table has a base in the data.
+Open http://localhost:5173 (the dev server listens on `localhost`, so `127.0.0.1` may refuse the connection). Copy `.env.example` to `backend/.env` and set `OPENAI_API_KEY`. Every agent uses OpenAI (`gpt-6.1-sol`) by default, including synthetic data, open-end coding and codeframe proposals. `ANTHROPIC_API_KEY` is optional: it serves any role you set to a Claude id (`claude-...`) and the backup model when OpenAI fails. Keys stay on the server. A named crosstab, a tab spec that is already saved, and registered statistics run without them. Building a tab spec calls the validator, and the spec is saved only after each table has a base in the data.
 
 ### Optional: Ad Hoc AutoCoder for open-end coding
 
@@ -39,6 +39,19 @@ Open **Connectors** at the bottom left. The agents can then import a brief or da
 
 The ready-made connectors use each provider's hosted MCP server and sign in with OAuth. An admin registers an OAuth client once and puts its id and secret in `backend/.env`: `GOOGLE_MCP_CLIENT_ID`/`GOOGLE_MCP_CLIENT_SECRET`, `SLACK_MCP_CLIENT_ID`/`SLACK_MCP_CLIENT_SECRET`, or `MICROSOFT_TENANT_ID` with `MICROSOFT_MCP_CLIENT_ID`/`MICROSOFT_MCP_CLIENT_SECRET`. Each card lists the provider's setup steps and the redirect URI to register (`PUBLIC_BASE_URL` + `/api/connectors/oauth/callback`). Slack only accepts HTTPS redirect URIs, so set `PUBLIC_BASE_URL` to an HTTPS address that reaches the backend. Google's Drive server is in Developer Preview. Microsoft's hosted OneDrive and SharePoint server is in preview and needs a Copilot licence, and its card can point at another Microsoft 365 MCP server instead. A custom MCP server needs only its streamable HTTP URL and an optional token. Tokens are encrypted at rest with `CONNECTOR_SECRET_KEY`, or with a key generated in `data/connectors.key` when that is unset.
 
+**Google Drive for any Google account.** Google's Drive MCP server only accepts Google Workspace accounts in its Developer Preview. The **Google Drive (any Google account)** card works with a personal Gmail account too. The backend serves its own small MCP server at `/api/builtin/google-drive/mcp`, which calls Google's standard Drive API with the signed-in user's token. Its tools are:
+- **Read** (run at once): search files and folders, and download a file. Google Docs come back as `.docx`, Sheets as `.xlsx`, and Slides as `.pptx`, up to 25 MB.
+- **Write** (wait for approval): create a folder, and upload a file.
+
+Set it up in Google Cloud:
+1. Enable the Google Drive API (`drive.googleapis.com`).
+2. Configure the OAuth consent screen. Choose **External** in **Testing** and add each person who will connect as a test user; Workspace organisations can choose **Internal** instead.
+3. Add the scopes `drive.readonly` and `drive.file`.
+4. Create a **Web application** OAuth client with the redirect URI shown on the card.
+5. Put its id and secret in `backend/.env` as `GOOGLE_DRIVE_CLIENT_ID` and `GOOGLE_DRIVE_CLIENT_SECRET`.
+
+While the Google app stays in **Testing**, sign-in shows an unverified-app warning and has to be repeated every 7 days. The server accepts requests only for `localhost` and the host in `PUBLIC_BASE_URL`, and stores nothing.
+
 To rehearse without real accounts, run the stand-in server, which offers Drive- and Slack-like tools, and add `http://127.0.0.1:8765/mcp` with token `demo-token` as a custom server:
 
 ```powershell
@@ -49,6 +62,27 @@ cd backend
 ### Live quality: bot and fraud detection in a live Decipher survey
 
 Open the **Live quality** tab in a project and tick **Add tracking when this survey is programmed in Decipher** (or ask in chat, for example "program this survey in Decipher with bot and fraud detection"). Programming then embeds a tracker script and a hidden results page in the survey XML. While people take the survey, the tracker sends behaviour (keystrokes, mouse, scrolling, focus), open-end text, page timing, and grid answers to the bot-detection API from the `bot_detection_live` project (`BOT_DETECTION_API_BASE`, default the deployed Cloud Run service). On the final page it runs the composite check and writes the respondent id, session id, verdict, score, and risk into hidden `QOS_*` questions, so they are in the Decipher data file too. The tab refreshes every 8 seconds with totals and one row per respondent: behaviour verdict, open-end quality and reasons, fraud signals, straight-lining, and speeding. Straight-lining and speeding are computed in Quant OS from the page and grid data the tracker records. The survey id in the detection service is the project name; once a survey is live in Decipher that id is kept, so renaming the project does not split its responses. **Quality dashboard** (bottom left) shows every tracked survey with live tiles, starts over time, open-end quality, reasons for flags, a filterable respondent table, and a CSV export. Switch to **All surveys** to see surveys from other tools that use the same detection service.
+
+**A survey programmed elsewhere.** To track a survey that wasn't programmed in Quant OS, upload its Decipher XML (`.xml`, or `.txt` holding the XML). Use **Upload a Decipher XML** in the Live quality tab, or attach the file in chat and ask, for example "Add our bot detection to this survey".
+
+What gets added:
+- the tracker script, as a `respview.client.js` style with `mode="after"`, so it adds to the survey's own page scripts instead of replacing them;
+- the hidden results page;
+- the privacy notice and the in-survey bot check, when the quality rules ask for them. The bot check only goes on a page break every respondent reaches: never inside a loop or a block with a condition.
+
+Nothing else in the file changes. Removing the tracking gives back the original file byte for byte, so tracking that was added before is replaced, not doubled.
+
+The result becomes the project's Decipher survey, so you can:
+- download it from the Live quality tab or the Decipher output;
+- preview it;
+- upload it with **Upload to Decipher**.
+
+That upload always creates a **new** Decipher test survey; the survey the XML came from is never replaced. Programming a questionnaire later in the same project doesn't reuse that test survey either.
+
+The file is refused, with the reason, when it:
+- isn't a `<survey>` XML;
+- isn't well-formed;
+- already uses `QOS_` labels.
 
 **Quality rules.** Each project starts on default rules. Change them under **Quality rules** in the Live quality tab before the survey goes live:
 - **Flagging rules** apply on the dashboard as soon as you save: the bot score threshold, the decisive bot signals (automated browser, scripted clicks, no mouse or keyboard, honeypot, open ends that appeared without typing), the speeder and straight-lining limits, which open-end reasons count as low quality, pasted answers, the fraud threshold, duplicates, and connections from cloud data centres.
@@ -96,13 +130,20 @@ npm test
    - several entry boxes filled in order, and drop-downs (`<select>`);
    - lists copied from another question ("[SHOW Q41 LIST]");
    - required answers unless a note says not to force one;
-   - unnumbered rating scales coded with the positive end highest.
+   - unnumbered rating scales coded with the positive end highest;
+   - sums and range midpoints ("income midpoint from S5"), computed into a hidden `float`;
+   - sections shown in random order ("ROTATE SECTIONS A, B, C"), as child blocks with `randomize="1"` inside a block with `randomizeChildren="1"`. Sections must be runs of consecutive questions in one module; otherwise the rotation is left as a warning;
+   - alphabetical answer lists (`sortRows="asc,survey"`);
+   - images and other stimulus, as `<img src="[rel name.png]">` in the question text, with a warning to upload each file;
+   - rows or questions for one country, shown only when the country question has that country.
 
    Variables the questionnaire leaves to the sample (least fill, panel source) stay as hidden questions with a to-do for the assignment.
 2. **Checking the logic.** References to unknown questions or codes, and bases or terminates written in the notes but not programmed, are planned again with the problem stated.
 3. **Building the XML.** It follows the house style: rows are named by punch code (`r98`, `r99`), scale columns are `c0`–`c10` or carry `value`, and the standard survey settings are applied, including `ss:disableBackButton` with the `ss`/`html` prefixes declared.
 4. **Reviewing it.** A reviewer reads each question's instructions next to its XML and lists anything missing or wrong. Those questions are planned again, for up to two rounds.
-5. **What stays open.** Anything still open, such as quotas, images, ZIP code checks, and sample-source logic, becomes a `PROGRAMMER TODO` comment in the XML and a warning in the result.
+5. **What stays open.** Anything still open, such as quotas, ZIP code checks, and sample-source logic, becomes a `PROGRAMMER TODO` comment in the XML and a warning in the result.
+
+**Reviewing and editing the logic.** Each question in the questionnaire panel has Edit logic. It sets who sees the question (conditions on earlier questions or derived variables, joined by all or any), which answers terminate and whether immediately or as a flag, anchored and exclusive answers, randomized or A-Z order, required answers, number ranges and totals, minimum characters, and which rows show from an earlier question. A condition that uses grid rows, counts, or nested logic is changed in chat instead. Show in the file opens the part of the Word file the question was read from, with the question's wording marked. Questionnaires imported before this change have no stored file text until they are imported again.
 
 **Learning to read questionnaires.** Questionnaires lay out questions, codes, and instructions in many different ways. When a part of a file fails the word-for-word check and the retry reads it correctly, the first mistake is written as a general reading rule (for example "copy inline piping directives inside an option exactly"). Changes people make to wording, types, answer lists, grid rows, or notes before programming become reading rules too. The importer receives the reading rules whose examples resemble the part of the file it is reading, so each questionnaire it reads improves the next. Reading rules never relax the rule to copy the file's words exactly.
 
@@ -112,16 +153,33 @@ npm test
 
 `app/engines/decipher_compare.py` scores a generated survey against a reference XML question by question: type, rows, columns, show-if, row piping, range, total, and shuffle.
 
+**Measuring quality.** `python scripts/benchmark.py` (from `backend/`) imports, plans, and scores each survey listed in `benchmarks.local.json` against its programmer-built XML. It saves the run to `benchmark_results/` and compares it with the previous run, and fails when a survey drops more than 2 points. Each run also keeps the XML it built (`xml/`) and lists every check it missed and every open to-do, so a low score can be traced. Use `--config` and `--results` to keep a second set of surveys apart, for example `benchmarks.gbk.local.json`. Copy `benchmarks.example.json` to start the list. Both the list and the results stay out of git because they hold client files. The Progress tab of the Learned rules page charts import retries and the corrections people make before programming, over time.
+
+**Long tasks.** Imports and plans report progress ("Read 3 of 7 parts of the file"). Cancel stops a task at its next step. Model answers are kept for 14 days under `storage/cache/model_calls`, so sending the same request again reuses the parts that already finished. Set `MODEL_CALL_CACHE=false` to turn this off.
+
+**When the request was read the wrong way.** Under the latest reply, "Done as: ... · Not this?" offers the other likely readings, such as editing the current questionnaire or just answering. Choosing one runs the same message again that way.
+
+### Weighting: census targets and a rim weight
+
+Open the **Weighting** tab (beside Live quality), or ask in chat, for example "propose census weighting targets for US adults 18 to 65".
+
+1. **Pick the variables.** The tab suggests one age, one gender, and one region question from the dataset, with each answer's sample share. Add or remove variables as needed.
+2. **Research the targets.** "Research census targets" asks the research model to search official statistics (a national census, a statistics office, or the American Community Survey) with web search. It then maps the figures onto the survey's own answer codes, merging codes where the published figures can't separate them. Every target lists its sources. A reference whose URL did not come back from the search is marked "Not confirmed, check it". `MODEL_RESEARCH` picks the model (default `gpt-6.1-sol`, which uses OpenAI web search and `OPENAI_API_KEY`; a Claude id such as `claude-opus-5-5` uses Claude web search and `ANTHROPIC_API_KEY`); `RESEARCH_MAX_SEARCHES` limits the searches per run (default 8). It usually takes one to two minutes.
+3. **Accept or change them.** Type over any target, or choose "Enter targets myself" to start from blanks. Each variable's targets must add up to 100%. Answers with no published figure, such as "prefer not to say", can be left out; those respondents keep their own share.
+4. **Build the weight.** Raking adjusts each respondent's weight one variable at a time until every target is met, keeping weights between the caps (0.3 to 3 by default, relative to an average of 1). The result shows efficiency, effective base, design effect, the weight range, and target against weighted share for every category. If the caps stop a target from being reached, it says by how much.
+
+Building writes a new dataset version with a `QOS_WEIGHT` column and makes it the project weight. From then on, crosstabs, tab books, tab specs, and reports are weighted, with significance tested on the effective base. Untick "Use QOS_WEIGHT" in the tab, or say "unweighted" in a request, for unweighted tables. A weight named in the request or in a saved tab spec takes precedence. Planned analyses (regression, segmentation, and so on) do not use the weight yet. If the dataset changes after the weight is built, for example when cleaning drops respondents, the tab asks you to rebuild it.
+
 ## Known limits
 
-- Unweighted crosstabs use a two-tailed unpooled z-test within each banner group, not against Total and not across groups. Uppercase letters are 95% and lowercase letters are 90%. A column below the table minimum base is marked `.`. Newly generated plans use 20 as that minimum and flag bases of 20–29 as `*low base`. Weighted tables do not receive letters.
+- Unweighted crosstabs use a two-tailed unpooled z-test within each banner group, not against Total and not across groups. Uppercase letters are 95% and lowercase letters are 90%. A column below the table minimum base is marked `.`. Newly generated plans use 20 as that minimum and flag bases of 20–29 as `*low base`. Mean rows use a Welch t-test. Weighted tables test the weighted percentages and means against each column's effective base (sum of weights squared over the sum of squared weights), and the tab book's base line shows the unweighted, weighted, and effective bases. The tab book's cover note states the settings the tables were actually tested with.
 - Tab specs export as an analyst plan with Overview, Banner specs, Table plan, Derived variables, and Not tabbed. Chat asks the validator to write that plan from the dataset profile. A column with no data, a text field, and an admin field stay on Not tabbed. A multiple-response table records the punch code that is in the data. A base that matches nobody is saved as All. The spec is not stored when a table would still be empty after two corrections. Download Excel on the tab spec writes that workbook, with the same navy headers, column widths, and orange low-base rows as the example plan. The editor shows those table-plan columns. An older nine-sheet workbook still imports. A base cell that is not `All` or a code comparison blocks that table until it is confirmed. Asking chat to generate cross-tabs from that spec runs the latest saved plan against the active dataset and writes a workbook in the example crosstab layout: a table of contents and one stacked sheet, each question crossed by one banner. The panel lists those tables and loads the one you select. A named `row by banner` request still runs one table. Open ends and unconfirmed bases are recorded as exceptions and the other tables still run.
 - Questionnaire DOCX and PDF exports keep programming notes in blue, separate from respondent text. Coding workbooks write numeric punches on `Coded_Data` and formula counts on `Codeframe_{variable}`.
-- Decipher programming compiles the saved questionnaire into importable survey XML. Loops have an empty body, ranks do not attach a visual rank-sort style, and dates are `YYYY-MM-DD` text. When `DECIPHER_API_KEY` is set, that XML is uploaded to `https://selfserve.decipherinc.com/api/v1`: the first program creates a survey, and a later program replaces `survey.xml` on the same path. The open link is `https://selfserve.decipherinc.com/survey/{path}`. If Decipher rejects the file, the programmer corrects the structure Decipher named and uploads again: a required survey attribute, a tag that cannot sit inside its parent, or an attribute Decipher names on a tag. Question text, option codes, and routing stay as written. An error that does not name one of those changes is reported, and the XML already corrected is kept. The key is sent as `x-apikey` and stays on the server. A blank key still only saves the XML for download. Live surveys are not overwritten. Preview survey walks that XML one question at a time, including the `cond`, `term`, and `goto` logic in the file. Programmer notes are XML comments, not `note` elements, and the survey sets `delphi="1"`. A condition this preview cannot read stops the walk instead of being guessed, and `<validate>` Python is not executed.
+- Decipher programming compiles the saved questionnaire into importable survey XML. Loops have an empty body, ranks do not attach a visual rank-sort style, and dates are `YYYY-MM-DD` text. When `DECIPHER_API_KEY` is set, programming prepares the XML and shows where it would go (a new survey, or a new version of the survey on that path). Nothing is sent until Upload to Decipher is pressed or the chat answers yes. Then the XML is uploaded to `https://selfserve.decipherinc.com/api/v1`: the first upload creates a survey, and a later one replaces `survey.xml` on the same path. The open link is `https://selfserve.decipherinc.com/survey/{path}`. If Decipher rejects the file, the programmer corrects the structure Decipher named and uploads again: a required survey attribute, a tag that cannot sit inside its parent, or an attribute Decipher names on a tag. Question text, option codes, and routing stay as written. An error that does not name one of those changes is reported, and the XML already corrected is kept. The key is sent as `x-apikey` and stays on the server. A blank key still only saves the XML for download. Live surveys are not overwritten. Preview survey walks that XML one question at a time, including the `cond`, `term`, and `goto` logic in the file. Programmer notes are XML comments, not `note` elements, and the survey sets `delphi="1"`. A condition this preview cannot read stops the walk instead of being guessed, and `<validate>` Python is not executed.
 - A Prolific sample price uses `PROLIFIC_API_KEY` from the server. The panel shows the audience, planned quota cells, eligibility, reward, total, and balance. The model does not type the price. Publishing locks that total only after the user confirms it, and only when the Decipher survey URL exists, the balance covers the new total, and screen-out pay is accepted. Pause, resume, and stop stay on that panel. Other panel vendors are not connected.
 - Unknown Excel tab-spec layouts are previewed and blocked when the mapping is ambiguous.
 - MaxDiff and conjoint are refused.
-- Questionnaire drafting, importing, Decipher logic planning, and the program review use Claude Opus 5.5 (`MODEL_QUESTIONNAIRE` and `MODEL_VALIDATOR`). Claude calls stream, send a JSON schema with nested conditions unrolled to two levels (or put it in the instructions when Claude cannot compile a large schema), validate the answer in code, and fall back to another Claude model on a refusal. Routing and analysis still call the OpenAI Agents SDK. An uploaded DOCX, PDF, TXT, or Markdown file in the project is included as study material, and Word tables are part of that text. Open-end classification and codeframe proposals call Claude when `MODEL_CODING` starts with `claude`. Numeric results do not.
+- Questionnaire drafting, importing, Decipher logic planning, and the program review use the models set in `MODEL_QUESTIONNAIRE` and `MODEL_VALIDATOR`. When a provider fails (no credit, rate limit, outage), the call is retried once on the other provider's backup model (`MODEL_BACKUP_OPENAI`, `MODEL_BACKUP_ANTHROPIC`) and the reply says so; `MODEL_BACKUP_ENABLED=false` turns this off. Claude calls stream, send a JSON schema with nested conditions unrolled to two levels (or put it in the instructions when Claude cannot compile a large schema), validate the answer in code, and fall back to another Claude model on a refusal. Routing and analysis still call the OpenAI Agents SDK. An uploaded DOCX, PDF, TXT, or Markdown file in the project is included as study material, and Word tables are part of that text. Open-end classification and codeframe proposals call Claude only when `MODEL_CODING` starts with `claude`. Coding and synthetic-data calls never share conversation history, whichever provider serves them: each coding batch carries the codeframe (every code's id, label and definition) and its own rows. Numeric results do not use a model.
 - While a task is running, the chat keeps the user’s message on screen and lists the real stage messages (for example “Drafting the instrument”), with a clock on the current stage. The open artifact stays in the panel and shows that same stage.
 - The questionnaire editor adds, deletes, and reorders questions and options, and autosaves through the revision API. The tab-spec grid sorts, copies, inserts, and deletes rows. A duplicate table id or an unknown banner is blocked.
 - Asking for a chart of the latest table runs a generated script in the sandbox and records a job. The chat does not accept arbitrary Python inside the API process.

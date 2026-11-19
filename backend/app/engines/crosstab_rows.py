@@ -230,7 +230,7 @@ def _numeric_rows(
             estimate = float((values[keep] * w[keep]).sum() / denom) if denom else None
         else:
             estimate = float(values.mean()) if unw else None
-        cells[column.id] = _cell(
+        cell = _cell(
             estimate,
             unw,
             wbase,
@@ -239,6 +239,12 @@ def _numeric_rows(
             table.display_decimals,
             percent=False,
         )
+        if not use_weight and unw > 1:
+            cell.standard_deviation = float(values.std(ddof=1))
+        elif use_weight and estimate is not None:
+            cell.standard_deviation = _weighted_sd(values, w, estimate)
+            cell.effective_base_if_available = effective_base(mask, weights)
+        cells[column.id] = cell
     return [ResultRow(code=name, label="Mean", row_kind="mean", cells=cells)]
 
 
@@ -298,6 +304,8 @@ def _stub(
         estimate = _percent(unum, den_u, wnum, den_w, use_weight)
         cells[column.id] = _cell(estimate, unw, wbase, unum, wnum, decimals, percent=True)
         cells[column.id].weighted_denominator = den_w if use_weight else wbase
+        if use_weight:
+            cells[column.id].effective_base_if_available = effective_base(_mask, weights)
     return ResultRow(code=code, label=label, row_kind=kind, cells=cells)  # type: ignore[arg-type]
 
 
@@ -345,6 +353,42 @@ def _bases(mask: pd.Series, weights: pd.Series) -> tuple[int, float]:
     """
     unw = int(mask.sum())
     return unw, _positive_sum(mask, weights)
+
+
+def effective_base(mask: pd.Series, weights: pd.Series) -> float:
+    """Return the Kish effective base, (sum of weights) squared over the sum of squared weights.
+
+    Args:
+        mask: Rows in the base.
+        weights: Weights. Zero, negative, and missing weights are left out.
+
+    Returns:
+        Effective base. Equal to the unweighted count when every weight is the same.
+    """
+    sub = weights[mask].to_numpy(dtype=float, na_value=np.nan)
+    sub = sub[np.isfinite(sub) & (sub > 0)]
+    squares = float((sub**2).sum())
+    return float(sub.sum() ** 2 / squares) if squares > 0 else 0.0
+
+
+def _weighted_sd(values: pd.Series, weights: pd.Series, mean: float) -> float | None:
+    """Return a weighted standard deviation with the usual n / (n - 1) correction.
+
+    Args:
+        values: Answers in the column.
+        weights: Matching weights.
+        mean: Weighted mean.
+
+    Returns:
+        Standard deviation, or None with fewer than two weighted answers.
+    """
+    keep = weights.notna() & np.isfinite(weights) & (weights > 0)
+    x = values[keep].to_numpy(dtype=float)
+    w = weights[keep].to_numpy(dtype=float)
+    if len(x) < 2 or w.sum() <= 0:
+        return None
+    variance = float((w * (x - mean) ** 2).sum() / w.sum()) * len(x) / (len(x) - 1)
+    return float(np.sqrt(variance))
 
 
 def _positive_sum(mask: pd.Series, weights: pd.Series) -> float:

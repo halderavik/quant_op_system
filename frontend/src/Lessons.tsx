@@ -2,7 +2,14 @@
 
 import { GraduationCap, Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { listProgrammingLessons, setProgrammingLessonStatus, type ProgrammingLesson } from "./api";
+import {
+  getQualityTrend,
+  listProgrammingLessons,
+  setProgrammingLessonStatus,
+  type ProgrammingLesson,
+  type QualityPoint,
+} from "./api";
+import { formatRate, trendSummaries } from "./learningTrend";
 import { Badge, Button, IconButton } from "./ui";
 
 type Filter = "active" | "disabled" | "all";
@@ -45,6 +52,17 @@ export function LessonsDialog({ onClose }: { onClose: () => void }) {
   const [filter, setFilter] = useState<Filter>("active");
   const [search, setSearch] = useState("");
   const [stage, setStage] = useState<Stage>("all");
+  const [view, setView] = useState<"rules" | "progress">("rules");
+  const [trend, setTrend] = useState<QualityPoint[] | null>(null);
+
+  function showProgress() {
+    setView("progress");
+    if (trend === null) {
+      getQualityTrend()
+        .then(setTrend)
+        .catch((reason: Error) => setError(reason.message));
+    }
+  }
   const [busy, setBusy] = useState("");
   const dialog = useRef<HTMLDivElement>(null);
 
@@ -106,7 +124,26 @@ export function LessonsDialog({ onClose }: { onClose: () => void }) {
             <X className="h-4 w-4" />
           </IconButton>
         </header>
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-5 py-3">
+        <div className="flex shrink-0 gap-1 border-b border-line px-5 pt-3" role="tablist">
+          {(["rules", "progress"] as const).map((tab) => (
+            <button
+              aria-selected={view === tab}
+              className={
+                view === tab
+                  ? "rounded-t-md border border-b-0 border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink"
+                  : "px-3 py-1.5 text-sm text-ink-2 hover:text-ink"
+              }
+              key={tab}
+              onClick={() => (tab === "progress" ? showProgress() : setView("rules"))}
+              role="tab"
+              type="button"
+            >
+              {tab === "rules" ? "Rules" : "Progress"}
+            </button>
+          ))}
+        </div>
+        {view === "progress" && <ProgressView error={error} trend={trend} />}
+        <div className={view === "progress" ? "hidden" : "flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-5 py-3"}>
           <div className="flex gap-1" role="group" aria-label="Show rules">
             {(["active", "disabled", "all"] as Filter[]).map((value) => (
               <Button
@@ -144,7 +181,7 @@ export function LessonsDialog({ onClose }: { onClose: () => void }) {
             />
           </label>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto bg-canvas px-5 py-4">
+        <div className={view === "progress" ? "hidden" : "min-h-0 flex-1 overflow-y-auto bg-canvas px-5 py-4"}>
           {error && (
             <p className="mb-3 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger" role="alert">{error}</p>
           )}
@@ -203,6 +240,59 @@ export function LessonsDialog({ onClose }: { onClose: () => void }) {
           </ul>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ProgressView({ trend, error }: { trend: QualityPoint[] | null; error: string }) {
+  if (error) return <p className="m-5 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger" role="alert">{error}</p>;
+  if (trend === null) return <p className="px-5 py-4 text-sm text-muted">Loading progress…</p>;
+  const summaries = trendSummaries(trend);
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto bg-canvas px-5 py-4 text-sm">
+      <p className="text-ink-2">
+        Lower is better. Each import counts the parts of the file that had to be re-read; each approval counts what people
+        changed before programming. Recent is the last 5 surveys; earlier is everything before them.
+      </p>
+      <table className="mt-3 w-full border-collapse">
+        <thead>
+          <tr className="text-left text-xs text-muted">
+            <th className="py-1 pr-3 font-medium">Measure</th>
+            <th className="py-1 pr-3 text-right font-medium">Earlier</th>
+            <th className="py-1 pr-3 text-right font-medium">Recent</th>
+            <th className="py-1 text-right font-medium">Surveys</th>
+          </tr>
+        </thead>
+        <tbody>
+          {summaries.map((row) => (
+            <tr className="border-t border-line" key={row.label}>
+              <td className="py-1.5 pr-3 text-ink">{row.label}</td>
+              <td className="py-1.5 pr-3 text-right tabular-nums text-ink-2">{formatRate(row.earlier)}</td>
+              <td className="py-1.5 pr-3 text-right tabular-nums text-ink">{formatRate(row.recent)}</td>
+              <td className="py-1.5 text-right tabular-nums text-ink-2">{row.count}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <h3 className="mb-2 mt-5 text-[11px] font-semibold uppercase tracking-wider text-muted">Surveys</h3>
+      {trend.length === 0 ? (
+        <p className="text-ink-2">Nothing measured yet. Imports and approvals appear here.</p>
+      ) : (
+        <ul className="space-y-1">
+          {[...trend].reverse().map((point, index) => (
+            <li className="flex flex-wrap gap-x-3 rounded border border-line bg-surface px-3 py-1.5" key={`${point.created_at}-${index}`}>
+              <span className="text-muted">{point.created_at.slice(0, 10)}</span>
+              <span className="font-medium text-ink">{point.title || point.project}</span>
+              <span className="text-ink-2">
+                {point.kind === "import_quality"
+                  ? `imported: ${point.reread_parts ?? 0} part(s) re-read, ${point.lessons_used ?? 0} rule(s) available`
+                  : `approved: ${point.extraction ?? 0} reading and ${point.programming ?? 0} logic correction(s)`}
+              </span>
+              <span className="ml-auto text-muted">{point.questions ?? 0} questions</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

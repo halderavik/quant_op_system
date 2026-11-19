@@ -49,11 +49,15 @@ def reference_table(
         question.id: float(position) for position, question in enumerate(document.questions)
     }
     for variable in document.derived_variables:
-        if not variable.values or variable.id in questions:
+        if not (variable.values or variable.compute) or variable.id in questions:
             continue
         questions[variable.id] = Question(
             id=variable.id,
-            type="multi_select" if variable.multiple else "single_select",
+            type="numeric"
+            if variable.compute
+            else "multi_select"
+            if variable.multiple
+            else "single_select",
             text=variable.label or variable.id,
             options=[Option(code=value.code, label=value.label) for value in variable.values],
         )

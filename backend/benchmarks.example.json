@@ -1,0 +1,7 @@
+[
+  {
+    "name": "Example survey",
+    "docx": "C:/path/to/Questionnaire.docx",
+    "reference": "C:/path/to/hand-programmed survey.xml"
+  }
+]

@@ -230,7 +230,7 @@ def _rows_cols(result: Similarity, area: str, ref: _Q, ours: _Q) -> None:
 
 def _behaviour(result: Similarity, ref: _Q, ours: _Q) -> None:
     pairs = {
-        "row piping": (_has(ref, "rowCond"), _has(ours, "rowCond")),
+        "row piping": (_row_cond(ref), _row_cond(ours)),
         "number range": (_range(ref.node), _range(ours.node)),
         "total": (ref.node.get("amount"), ours.node.get("amount")),
         "shuffle": (
@@ -263,6 +263,14 @@ def _behaviour(result: Similarity, ref: _Q, ours: _Q) -> None:
 def _has(q: _Q, attr: str) -> str:
     value = (q.node.get(attr) or "").replace(" ", "")
     return value
+
+
+# Q[row].c5 and Q.c5[row] pick the same cell of a grid.
+_ROW_THEN_COL = re.compile(r"(\w+)\[row\]\.(c\w+)")
+
+
+def _row_cond(q: _Q) -> str:
+    return _ROW_THEN_COL.sub(r"\1.\2[row]", _has(q, "rowCond"))
 
 
 def _flagged(q: _Q, attr: str) -> tuple[str, ...]:

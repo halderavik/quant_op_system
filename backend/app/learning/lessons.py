@@ -386,6 +386,17 @@ async def learn_from_approval(
         if planned is None:
             return 0
         pairs = correction_pairs(planned, approved)
+        record_quality(
+            db,
+            project_id,
+            "approval_corrections",
+            {
+                "questions": len(approved.questions),
+                "extraction": sum(1 for pair in pairs if pair["stage"] == "extraction"),
+                "programming": sum(1 for pair in pairs if pair["stage"] == "programming"),
+                "title": approved.title[:120],
+            },
+        )
         return await _learn(db, settings, project_id, pairs, session_id)
     except Exception:  # noqa: BLE001 - learning must never stop programming
         logger.exception("Learning from approved questionnaire %s failed", artifact_id)
@@ -469,3 +480,64 @@ async def _distill(
     except Exception:  # noqa: BLE001
         return None
     return {item.correction: item.rule.strip() for item in result.rules if item.rule.strip()}
+
+
+# ------------------------------------------------------------------ measuring
+
+
+def record_quality(db: Session, project_id: str, kind: str, payload: dict[str, Any]) -> None:
+    """Store one measurement of how well reading or planning went, for the trend.
+
+    Args:
+        db: Session.
+        project_id: Project id.
+        kind: ``import_quality`` (parts re-read on import) or ``approval_corrections``
+            (changes people made before programming).
+        payload: Counts for this survey.
+    """
+    from app.learning.capture import capture_enabled
+    from app.models.tables import LearningEvent
+
+    try:
+        if not capture_enabled(db, project_id):
+            return
+        db.add(
+            LearningEvent(
+                id=str(uuid.uuid4()),
+                project_id=project_id,
+                artifact_type="questionnaire",
+                kind=kind,
+                actor="system",
+                payload=payload,
+            )
+        )
+        db.flush()
+    except Exception:  # noqa: BLE001 - measuring must never stop the work
+        logger.exception("Could not record %s for project %s", kind, project_id)
+
+
+def quality_trend(db: Session, limit: int = 200) -> list[dict[str, Any]]:
+    """Imports and approvals across projects, oldest first, for the learning trend."""
+    from app.models.tables import LearningEvent, Project
+
+    rows = db.scalars(
+        select(LearningEvent)
+        .where(LearningEvent.kind.in_(("import_quality", "approval_corrections")))
+        .order_by(LearningEvent.created_at.desc())
+        .limit(limit)
+    ).all()
+    names = {
+        project.id: project.name
+        for project in db.scalars(
+            select(Project).where(Project.id.in_({row.project_id for row in rows}))
+        ).all()
+    }
+    return [
+        {
+            "kind": row.kind,
+            "project": names.get(row.project_id, ""),
+            "created_at": row.created_at.isoformat(),
+            **(row.payload or {}),
+        }
+        for row in reversed(rows)
+    ]

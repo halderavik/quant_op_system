@@ -10,6 +10,8 @@ import {
   Monitor,
   Moon,
   PanelLeft,
+  PanelLeftClose,
+  Scale,
   Paperclip,
   Plug,
   ShieldCheck,
@@ -34,6 +36,7 @@ import {
   listMessages,
   listProjects,
   cancelTask,
+  redoTask,
   sendMessage,
   taskStatus,
   uploadFile,
@@ -43,16 +46,18 @@ import { ConnectorApprovals, ConnectorsDialog } from "./Connectors";
 import { LessonsDialog } from "./Lessons";
 import { ArtifactEditor } from "./Editors";
 import { LiveQualityPanel } from "./LiveQualityPanel";
+import { WeightingPanel } from "./WeightingPanel";
 import { QualityDashboard } from "./quality/QualityDashboard";
 import { ArtifactIcon, OutputsPanel } from "./OutputsPanel";
 import { TaskActivity } from "./TaskActivity";
+import { doneLabel, redoOptions } from "./redoOptions";
 import { TASK_POLL_MS, activitySteps, artifactToShow, formatElapsed, isTerminalStatus, stillWaiting } from "./chatState";
 import { artifactTypeLabel } from "./labels";
 import { nudgeWidth } from "./outputs";
 import { nextPreference, useTheme, type ThemePreference } from "./theme";
 import { Button, IconButton } from "./ui";
 
-type WorkspaceTab = "outputs" | "viewer" | "live";
+type WorkspaceTab = "outputs" | "viewer" | "live" | "weighting";
 type DatasetInfo = { rows: number; variables: string[] };
 
 const PANEL_MIN = 360;
@@ -83,6 +88,21 @@ export function App() {
   const [now, setNow] = useState(Date.now());
   const [panelWidth, setPanelWidth] = useState(560);
   const [railOpen, setRailOpen] = useState(false);
+  // Reason: on wide screens the projects rail can be hidden to give the project more room.
+  const [railHidden, setRailHidden] = useState(() => {
+    try {
+      return window.localStorage.getItem("quantos.railHidden") === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("quantos.railHidden", railHidden ? "1" : "0");
+    } catch {
+      // Storage can be blocked; the rail still toggles for this visit.
+    }
+  }, [railHidden]);
   const [mobileView, setMobileView] = useState<"chat" | "outputs">("chat");
   const [expanded, setExpanded] = useState(false);
   const [theme, setTheme] = useTheme();
@@ -184,7 +204,7 @@ export function App() {
     show(null);
   }
 
-  async function onSend(override?: string) {
+  async function onSend(override?: string, start?: () => Promise<{ task_id: string }>) {
     const text = (override ?? draft).trim();
     if (!project?.conversation_id || !text || busy) return;
     setBusy(true);
@@ -199,7 +219,7 @@ export function App() {
     setDraft("");
     const previous = artifacts;
     try {
-      const sent = await sendMessage(project.conversation_id, text);
+      const sent = await (start ? start() : sendMessage(project.conversation_id, text));
       setTaskId(sent.task_id);
       let status = "queued";
       let failure = "";
@@ -238,7 +258,7 @@ export function App() {
   function onTabKey(event: KeyboardEvent<HTMLButtonElement>) {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
-    const order: WorkspaceTab[] = open ? ["outputs", "viewer", "live"] : ["outputs", "live"];
+    const order: WorkspaceTab[] = open ? ["outputs", "viewer", "live", "weighting"] : ["outputs", "live", "weighting"];
     const step = event.key === "ArrowRight" ? 1 : -1;
     const next = order[(order.indexOf(tab) + step + order.length) % order.length];
     setTab(next);
@@ -264,7 +284,8 @@ export function App() {
         className={clsx(
           "w-64 shrink-0 flex-col border-r border-line bg-surface",
           railOpen ? "fixed inset-y-0 left-0 z-40 flex shadow-xl" : "hidden",
-          "xl:static xl:flex xl:shadow-none",
+          "xl:static xl:shadow-none",
+          railHidden ? "xl:hidden" : "xl:flex",
         )}
       >
         <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-line px-4">
@@ -275,6 +296,9 @@ export function App() {
           </div>
           <IconButton className="xl:hidden" label="Close projects" onClick={() => setRailOpen(false)}>
             <X className="h-4 w-4" />
+          </IconButton>
+          <IconButton className="hidden xl:inline-flex" label="Hide projects panel" onClick={() => setRailHidden(true)}>
+            <PanelLeftClose className="h-4 w-4" />
           </IconButton>
         </div>
         <form
@@ -383,7 +407,14 @@ export function App() {
         )}
       >
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface px-3 sm:px-4">
-          <IconButton className="xl:hidden" label="Open projects" onClick={() => setRailOpen(true)}>
+          <IconButton
+            className={railHidden ? undefined : "xl:hidden"}
+            label={railHidden ? "Show projects panel" : "Open projects"}
+            onClick={() => {
+              if (window.matchMedia("(min-width: 1280px)").matches) setRailHidden(false);
+              else setRailOpen(true);
+            }}
+          >
             <PanelLeft className="h-4 w-4" />
           </IconButton>
           <div className="min-w-0 flex-1">
@@ -428,8 +459,11 @@ export function App() {
             {project && messages.length === 0 && !busy && (
               <p className="text-center text-sm text-muted">Ask for a table, a questionnaire edit, or a note.</p>
             )}
-            {messages.map((message) => {
+            {messages.map((message, index) => {
               const mine = message.role === "user";
+              const lastReply = !mine && index === messages.length - 1 && !busy;
+              const done = lastReply ? doneLabel(message.intent, message.content) : "";
+              const options = done && message.task_id ? redoOptions(message.intent, message.content) : [];
               return (
                 <article key={message.id} className={clsx("flex", mine ? "justify-end" : "justify-start")}>
                   <div className={clsx("max-w-[85%]", mine ? "items-end" : "items-start")}>
@@ -446,6 +480,25 @@ export function App() {
                     >
                       {message.content}
                     </p>
+                    {done && (
+                      <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                        <span>Done as: {done}</span>
+                        {options.length > 0 && <span aria-hidden>·</span>}
+                        {options.length > 0 && <span>Not this?</span>}
+                        {options.map((option) => (
+                          <button
+                            className="rounded-full border border-line-strong bg-surface px-2 py-0.5 text-ink-2 hover:bg-sunken hover:text-ink"
+                            key={option.action}
+                            onClick={() =>
+                              void onSend(`Redo as: ${option.label}`, () => redoTask(message.task_id as string, option.action))
+                            }
+                            type="button"
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </p>
+                    )}
                   </div>
                 </article>
               );
@@ -652,6 +705,23 @@ export function App() {
                 <ShieldCheck aria-hidden className="h-4 w-4" />
                 Live quality
               </button>
+              <button
+                aria-controls="panel-weighting"
+                aria-selected={tab === "weighting"}
+                className={clsx(
+                  "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors",
+                  tab === "weighting" ? "bg-sunken text-ink" : "text-muted hover:text-ink",
+                )}
+                id="tab-weighting"
+                onClick={() => setTab("weighting")}
+                onKeyDown={onTabKey}
+                role="tab"
+                tabIndex={tab === "weighting" ? 0 : -1}
+                type="button"
+              >
+                <Scale aria-hidden className="h-4 w-4" />
+                Weighting
+              </button>
               {open && (
                 <IconButton label="Close viewer" onClick={() => show(null)}>
                   <X className="h-4 w-4" />
@@ -688,6 +758,22 @@ export function App() {
                   onProgrammed={async () => {
                     await refreshProject(project);
                   }}
+                  projectId={project.id}
+                />
+              )}
+            </div>
+            <div
+              aria-labelledby="tab-weighting"
+              className={clsx("min-h-0 flex-1 overflow-y-auto bg-canvas", tab !== "weighting" && "hidden")}
+              id="panel-weighting"
+              role="tabpanel"
+            >
+              {tab === "weighting" && (
+                <WeightingPanel
+                  onChanged={async () => {
+                    await refreshProject(project);
+                  }}
+                  onError={setError}
                   projectId={project.id}
                 />
               )}

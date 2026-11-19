@@ -63,6 +63,7 @@ def repair_survey_xml(xml: str, errors: list[str]) -> XmlRepair:
     fixes.extend(_lift_tags(root, messages))
     fixes.extend(_drop_attributes(root, messages))
     fixes.extend(_drop_styles(root, messages))
+    fixes.extend(_fix_shuffle_by(root, messages))
     unique = _unique(fixes)
     if not unique:
         return XmlRepair(xml=xml, fixes=[], changed=False)
@@ -292,6 +293,53 @@ def _drop_styles(root: ET.Element, messages: list[str]) -> list[str]:
                     "so those questions use Decipher's plain layout."
                 )
     return fixes
+
+
+_SHUFFLE_BY = re.compile(r"shuffleBy|shuffledBy", re.IGNORECASE)
+
+
+def _fix_shuffle_by(root: ET.Element, messages: list[str]) -> list[str]:
+    """Drop the shuffleBy links Decipher refuses, keeping each question's own order.
+
+    Decipher accepts ``shuffleBy`` only on a question whose rows shuffle, following a
+    question with the same number of rows. Any other link is removed. A question that
+    followed a shuffled list keeps a random order of its own.
+
+    Args:
+        root: Document root.
+        messages: Error texts.
+
+    Returns:
+        A description of the change, or nothing when Decipher did not object to shuffleBy.
+    """
+    if not any(_SHUFFLE_BY.search(message) for message in messages):
+        return []
+    by_label = {element.get("label"): element for element in root.iter() if element.get("label")}
+
+    def rows(element: ET.Element) -> int:
+        return sum(1 for child in element if _local(child.tag) == "row")
+
+    def shuffles(element: ET.Element) -> bool:
+        return "rows" in (element.get("shuffle") or "")
+
+    dropped: list[str] = []
+    for element in root.iter():
+        leader_label = element.get("shuffleBy")
+        if not leader_label:
+            continue
+        leader = by_label.get(leader_label)
+        if leader is not None and shuffles(element) and rows(element) == rows(leader):
+            continue
+        del element.attrib["shuffleBy"]
+        if leader is not None and shuffles(leader) and not shuffles(element) and rows(element) > 1:
+            element.set("shuffle", ",".join(filter(None, ["rows", element.get("shuffle")])))
+        dropped.append(element.get("label") or _local(element.tag))
+    if not dropped:
+        return []
+    return [
+        f"Removed shuffleBy from {', '.join(dropped)}: Decipher needs a shuffled question "
+        "with the same rows to follow, so each keeps its own order."
+    ]
 
 
 def _remove_attribute(root: ET.Element, tag: str, name: str) -> bool:

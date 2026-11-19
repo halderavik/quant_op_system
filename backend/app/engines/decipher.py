@@ -91,7 +91,7 @@ def _build(document: Questionnaire) -> tuple[str, list[CoverageItem], list[str],
     used: set[str] = set()
     labels = {question.id: safe_label(question.id, used) for question in document.questions}
     for variable in document.derived_variables:
-        if variable.values:
+        if variable.values or variable.compute:
             labels[variable.id] = safe_label(variable.id, used)
     rows, cols = punch_maps(document)
     _, questions, _ = reference_table(document)
@@ -145,12 +145,15 @@ def _build(document: Questionnaire) -> tuple[str, list[CoverageItem], list[str],
     opened = False
     derived_after: dict[str | None, list] = {}
     for variable in document.derived_variables:
-        if variable.values:
+        if variable.values or variable.compute:
             derived_after.setdefault(
                 variable.after if variable.after in labels else None, []
             ).append(variable)
     for variable in derived_after.pop(None, []):
         items.append(emit_derived(survey, variable, build))
+    rotation_of = _rotation_places(document, build)
+    rotation: tuple[int, ET.Element] | None = None
+    section: tuple[int, ET.Element] | None = None
     for question in document.questions:
         module = _module_for(document, question.id)
         key = module.id if module else None
@@ -158,10 +161,37 @@ def _build(document: Questionnaire) -> tuple[str, list[CoverageItem], list[str],
             parent = _block(survey, module, build) if module else survey
             current = key
             opened = True
-        items.append(emit_question(parent, question, build))
-        add_element(parent, "suspend")
+            rotation = section = None
+        target = parent
+        place = rotation_of.get(question.id)
+        if place is None:
+            rotation = section = None
+        else:
+            which, group = place
+            if rotation is None or rotation[0] != which:
+                outer = add_element(
+                    parent,
+                    "block",
+                    label=safe_label(f"BLK_Rotate{which + 1}", build.used),
+                    randomizeChildren="1",
+                )
+                note = document.rotations[which].note
+                if note:
+                    outer.append(ET.Comment(f" {_comment(note)} "))
+                rotation, section = (which, outer), None
+            if section is None or section[0] != group:
+                inner = add_element(
+                    rotation[1],
+                    "block",
+                    label=safe_label(f"BLK_Rotate{which + 1}_{group + 1}", build.used),
+                    randomize="1",
+                )
+                section = (group, inner)
+            target = section[1]
+        items.append(emit_question(target, question, build))
+        add_element(target, "suspend")
         for variable in derived_after.pop(question.id, []):
-            items.append(emit_derived(parent, variable, build))
+            items.append(emit_derived(target, variable, build))
         if question.id == document.terminate_after and build.deferred_terms:
             parent.append(
                 ET.Comment(" Screen-outs flagged during the screener end the interview here. ")
@@ -170,7 +200,7 @@ def _build(document: Questionnaire) -> tuple[str, list[CoverageItem], list[str],
                 add_element(parent, "term", description, label=label, cond=condition)
             build.deferred_terms.clear()
     for variable in document.derived_variables:
-        if not variable.values:
+        if not variable.values and not variable.compute:
             survey.append(
                 ET.Comment(
                     f" PROGRAMMER TODO: derived variable {variable.id}: "
@@ -219,6 +249,8 @@ def emit_derived(parent: ET.Element, variable: DerivedVariable, build: SurveyBui
     Returns:
         Coverage item.
     """
+    if variable.compute:
+        return _emit_computed(parent, variable, build)
     name = build.labels[variable.id]
     rows = build.rows.get(variable.id, {})
     lines: list[str] = []
@@ -282,6 +314,169 @@ def emit_derived(parent: ET.Element, variable: DerivedVariable, build: SurveyBui
         warnings=list(variable.unresolved),
         punches=punches,
     )
+
+
+def _emit_computed(
+    parent: ET.Element, variable: DerivedVariable, build: SurveyBuild
+) -> CoverageItem:
+    """Program a computed number (a total or a range midpoint) as a hidden question.
+
+    Args:
+        parent: Survey or block.
+        variable: Derived variable with ``compute`` set.
+        build: Shared build state.
+
+    Returns:
+        Coverage item.
+    """
+    compute = variable.compute
+    assert compute is not None
+    name = build.labels[variable.id]
+    todos = list(variable.unresolved)
+    code = ""
+    if compute.kind == "sum":
+        terms = []
+        for source in compute.sources:
+            question = build.questions.get(source)
+            label = build.labels.get(source)
+            if question is None or label is None:
+                todos.append(f"{source} is not a question in this survey")
+                continue
+            rows = build.rows.get(source, {})
+            wanted = [rows[str(row)] for row in compute.rows if str(row) in rows] or (
+                list(rows.values()) if question.options or question.matrix_items else []
+            )
+            if wanted and question.type in {"numeric", "allocation"}:
+                terms.extend(f"({label}.{row}.val or 0)" for row in wanted)
+            else:
+                terms.append(f"({label}.val or 0)")
+        if terms:
+            code = f"{name}.val = " + " + ".join(terms)
+    else:
+        source = compute.sources[0] if compute.sources else ""
+        question = build.questions.get(source)
+        label = build.labels.get(source)
+        rows = build.rows.get(source, {})
+        pairs = []
+        for option in question.options if question else []:
+            middle = range_midpoint(option.label)
+            row = rows.get(str(option.code))
+            if middle is not None and row:
+                pairs.append(f"({label}.{row}, {middle:g})")
+        if pairs:
+            code = (
+                f"for answer, middle in [{', '.join(pairs)}]:\n"
+                f"    if answer:\n"
+                f"        {name}.val = middle"
+            )
+            _note_warning(
+                build,
+                f"{variable.id}: check the midpoints worked out from the {source} answer ranges",
+            )
+        else:
+            todos.append(f"no numeric ranges found in the answers of {source}")
+    parent.append(ET.Comment(f" {variable.id}: {_comment(variable.definition)} "))
+    if code:
+        add_element(parent, "exec", code)
+    else:
+        parent.append(ET.Comment(f" PROGRAMMER TODO: compute {variable.id} "))
+    node = add_element(
+        parent,
+        "float",
+        label=name,
+        optional="1",
+        size="12",
+        where="execute,survey,report",
+    )
+    add_element(node, "title", variable.label or variable.id)
+    for note in todos:
+        node.append(ET.Comment(f" PROGRAMMER TODO: {_comment(note)} "))
+        _note_warning(build, f"{variable.id}: {note}")
+    return CoverageItem(
+        question_id=variable.id,
+        label=name,
+        element="float",
+        status="partial" if todos or not code else "programmed",
+        warnings=todos,
+        punches=[],
+    )
+
+
+_AMOUNT = re.compile(r"\d[\d,]*(?:\.\d+)?\s*[kKmM]?")
+
+
+def range_midpoint(label: str) -> float | None:
+    """The middle of an answer range: "25-34" is 29.5, "$50,000 to $74,999" is 62499.5.
+
+    "Under 25" is half of 25 and "65 or older" is 65; a label without a number has none.
+
+    Args:
+        label: Answer wording.
+
+    Returns:
+        The midpoint, or None.
+    """
+    numbers = []
+    for found in _AMOUNT.findall(label):
+        text = found.replace(",", "").strip()
+        scale = {"k": 1_000, "m": 1_000_000}.get(text[-1].lower(), 1)
+        numbers.append(float(text.rstrip("kKmM").strip()) * scale)
+    if len(numbers) >= 2:
+        return (numbers[0] + numbers[1]) / 2
+    if len(numbers) == 1:
+        if re.search(r"\b(?:under|less than|below|fewer than|up to)\b|<", label, re.I):
+            return numbers[0] / 2
+        return numbers[0]
+    return None
+
+
+def _rotation_places(document: Questionnaire, build: SurveyBuild) -> dict[str, tuple[int, int]]:
+    """Map each rotated question to (rotation, section); rotations that cannot be built are dropped.
+
+    A rotation is kept only when its sections are runs of consecutive questions that
+    follow each other and sit in one module, so the blocks can wrap them.
+
+    Args:
+        document: Questionnaire.
+        build: Shared build state, for warnings.
+
+    Returns:
+        Question id to (rotation index, section index).
+    """
+    order = {question.id: position for position, question in enumerate(document.questions)}
+    places: dict[str, tuple[int, int]] = {}
+    for which, rotation in enumerate(document.rotations):
+        groups = [[q for q in group if q in order] for group in rotation.groups]
+        groups = [sorted(group, key=order.__getitem__) for group in groups if group]
+        flat = sorted((q for group in groups for q in group), key=order.__getitem__)
+        positions = [order[q] for q in flat]
+        modules = {(_module_for(document, q) or Module(id="", title="")).id for q in flat}
+        contiguous = (
+            positions == list(range(positions[0], positions[0] + len(positions)))
+            if positions
+            else False
+        )
+        sections_whole = all(
+            [order[q] for q in group] == list(range(order[group[0]], order[group[0]] + len(group)))
+            for group in groups
+        )
+        if (
+            len(groups) < 2
+            or not contiguous
+            or not sections_whole
+            or len(modules) > 1
+            or any(q in places for q in flat)
+        ):
+            _note_warning(
+                build,
+                f"Section rotation not programmed (sections must be runs of consecutive questions): "
+                f"{_comment(rotation.note or str(rotation.groups))[:160]}",
+            )
+            continue
+        for group_index, group in enumerate(sorted(groups, key=lambda g: order[g[0]])):
+            for question_id in group:
+                places[question_id] = (which, group_index)
+    return places
 
 
 def _comment(text: str) -> str:

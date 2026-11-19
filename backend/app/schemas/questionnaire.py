@@ -117,6 +117,10 @@ class ProgrammingSpec(BaseModel):
     multiple: bool = False
     keep_together: list[list[int | str]] = Field(default_factory=list)
     same_order_as: str | None = None
+    # "LIST ALPHABETICALLY": answers sorted A-Z for each respondent; anchored ones stay put.
+    sort_alphabetically: bool = False
+    # Images or other stimulus shown with the question: file names, or what the file describes.
+    images: list[str] = Field(default_factory=list)
     terminate_when: Expr | None = None
     terminate_immediately: bool = False
     # More screen-outs on this question, each with its own timing (under 18 now, 55+ as a flag).
@@ -156,6 +160,8 @@ class Question(BaseModel):
     programming: ProgrammingSpec | None = None
     # False when the file gives no punch codes and they were numbered in order on import.
     codes_from_file: bool | None = None
+    # The part of the uploaded file this question was read from, for side-by-side review.
+    source_excerpt: str | None = None
 
 
 class Objective(BaseModel):
@@ -185,6 +191,24 @@ class DerivedValue(BaseModel):
     terminate: bool = False
 
 
+class Computation(BaseModel):
+    """A number worked out from answers rather than a group of respondents."""
+
+    # sum: add the answers; midpoint: the middle of the chosen answer's range ("25-34" is 29.5).
+    kind: Literal["sum", "midpoint"]
+    sources: list[str] = Field(default_factory=list)
+    # For a sum over one numeric list: only these rows (all rows when empty).
+    rows: list[int | str] = Field(default_factory=list)
+
+
+class BlockRotation(BaseModel):
+    """Runs of consecutive questions shown in random order ("ROTATE SECTIONS A, B, C")."""
+
+    # Each inner list is one section, in questionnaire order; sections are shuffled as wholes.
+    groups: list[list[str]]
+    note: str = ""
+
+
 class DerivedVariable(BaseModel):
     """A hidden or classification variable the questionnaire defines, such as a reader segment.
 
@@ -198,6 +222,8 @@ class DerivedVariable(BaseModel):
     multiple: bool = False
     after: str | None = None
     values: list[DerivedValue] = Field(default_factory=list)
+    # Set for a computed number (a total, an income midpoint); values stay empty then.
+    compute: Computation | None = None
     unresolved: list[str] = Field(default_factory=list)
 
 
@@ -223,6 +249,7 @@ class Questionnaire(BaseModel):
     estimated_minutes_note: str = "Heuristic length only. This is not a verified timing study."
     derived_variables: list[DerivedVariable] = Field(default_factory=list)
     source: QuestionnaireSource | None = None
+    rotations: list[BlockRotation] = Field(default_factory=list)
     # Screen-out flags fire after this question unless a terminate is immediate.
     terminate_after: str | None = None
     schema_version: str = "questionnaire/1"

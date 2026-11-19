@@ -141,3 +141,19 @@ def set_programming_lesson(
     lesson.status = body.status
     db.commit()
     return {"id": lesson.id, "status": lesson.status}
+
+
+@router.get("/learning/quality-trend")
+def learning_quality_trend(limit: int = 200, db: Session = Depends(get_db)) -> list[dict]:
+    """Per-survey counts over time: parts re-read on import and corrections before programming.
+
+    Args:
+        limit: Most recent measurements to return, up to 1000.
+        db: Session.
+
+    Returns:
+        Measurements, oldest first.
+    """
+    from app.learning.lessons import quality_trend
+
+    return quality_trend(db, max(1, min(limit, 1000)))

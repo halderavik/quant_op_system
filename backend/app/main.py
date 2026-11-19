@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.routes import router
 from app.config import Settings, get_settings
+from app.connectors import google_drive
 from app.db.base import Base
 from app.db.session import make_engine, make_session_factory
 from app.errors import AppError
@@ -62,6 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     logging.getLogger().addFilter(_RedactKey(active.prolific_api_key))
     for secret in (
         active.google_mcp_client_secret,
+        active.google_drive_client_secret,
         active.slack_mcp_client_secret,
         active.microsoft_mcp_client_secret,
         active.connector_secret_key,
@@ -72,6 +74,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     Base.metadata.create_all(engine)
     session_factory = make_session_factory(engine)
     storage = Storage(active)
+    drive_server = google_drive.build_server()
+    drive_app = google_drive.http_app(drive_server, active.public_base_url)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -95,7 +99,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 set_tracing_disabled(True)
             except Exception:
                 logger.info("OpenAI tracing helper was not imported.")
-        yield
+        # Reason: a mounted app's own lifespan never runs, so start its sessions here.
+        async with drive_server.session_manager.run():
+            yield
 
     app = FastAPI(title="Survey Research Agent Studio", version="0.1.0", lifespan=lifespan)
     app.state.settings = active
@@ -109,6 +115,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Reason: mounted before the router so no /api route can shadow the Drive server.
+    app.mount(google_drive.MOUNT_PATH, drive_app)
     app.include_router(router, prefix="/api")
 
     @app.exception_handler(AppError)

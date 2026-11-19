@@ -348,3 +348,27 @@ def mark_codes_from_file(document: Questionnaire, source_text: str) -> Questionn
             question.model_copy(update={"codes_from_file": stated * 2 >= len(question.options)})
         )
     return document.model_copy(update={"questions": questions})
+
+
+def attach_source_excerpts(
+    document: Questionnaire, source_text: str, limit: int = 4000
+) -> Questionnaire:
+    """Store on each question the part of the file it was read from.
+
+    Args:
+        document: Imported questionnaire.
+        source_text: Rendered source.
+        limit: Longest excerpt kept per question.
+
+    Returns:
+        The questionnaire with ``source_excerpt`` set where the file has the question id.
+    """
+    sections = {_norm_id(key): text for key, text in source_sections(source_text)}
+    questions = []
+    for question in document.questions:
+        excerpt = sections.get(_norm_id(question.id))
+        if excerpt:
+            excerpt = excerpt.replace("[TABLE]", "").replace("[/TABLE]", "").strip()[:limit]
+            question = question.model_copy(update={"source_excerpt": excerpt})
+        questions.append(question)
+    return document.model_copy(update={"questions": questions})

@@ -75,5 +75,9 @@ def test_the_importer_learns_from_its_own_fix_and_uses_it_next_time(
             reading = [lesson for lesson in lessons if lesson["stage"] == "extraction"]
             assert reading, "the first read's mistake should be stored as a reading rule"
             assert "drink coffee" in reading[0]["example_instruction"]
+    trend = client.get("/api/learning/quality-trend").json()
+    imports = [row for row in trend if row["kind"] == "import_quality"]
+    assert [row["reread_parts"] for row in imports] == [1, 0]
+    assert imports[1]["lessons_used"] >= 1
     # The second import of a similar file is told what was learned from the first.
     assert any("LESSONS FROM QUESTIONNAIRES READ BEFORE" in prompt for prompt in prompts)

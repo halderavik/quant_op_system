@@ -311,7 +311,12 @@ def _save_import(
     if suffix not in _IMPORT_SUFFIXES:
         name, suffix = name + ".md", "md"
     if outcome.files:
-        _, data, media = outcome.files[0]
+        returned, data, media = outcome.files[0]
+        kind = returned.lower().rsplit(".", 1)[-1] if "." in returned else ""
+        if kind in _IMPORT_SUFFIXES and kind != suffix:
+            # Reason: the name is planned before the file is seen; the file's own type wins,
+            # so a Drive document saved "as brief.md" stays a readable brief.docx.
+            name, suffix = name.rsplit(".", 1)[0] + "." + kind, kind
     else:
         data, media = outcome.text.encode("utf-8"), "text/markdown"
         if suffix not in {"md", "txt", "json", "csv"}:

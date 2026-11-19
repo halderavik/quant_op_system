@@ -16,6 +16,7 @@ export type ChatMessage = {
   content: string;
   task_id?: string | null;
   sequence: number;
+  intent?: string;
 };
 
 export type Artifact = {
@@ -361,6 +362,10 @@ export type LiveQualityState = {
     uploaded: boolean;
     tracking_in_xml: boolean;
     has_questionnaire: boolean;
+    /** Name of the uploaded XML the survey came from, when it was not programmed here. */
+    source_file?: string | null;
+    file_id?: string | null;
+    awaiting_upload?: boolean;
   };
 };
 
@@ -442,6 +447,20 @@ export function surveyExportUrl(surveyId: string): string {
 
 export async function getLiveQuality(projectId: string): Promise<LiveQualityState> {
   return parse(await fetch(`/api/projects/${projectId}/live-quality`));
+}
+
+/** Add bot and fraud tracking to a Decipher survey XML already uploaded to the project. */
+export async function addTrackingToXml(projectId: string, fileId: string): Promise<{
+  summary: string;
+  file_id: string;
+  tracking_survey_id: string;
+  state: LiveQualityState;
+}> {
+  return parse(await fetch(`/api/projects/${projectId}/live-quality/xml`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file_id: fileId }),
+  }));
 }
 
 export async function setLiveQuality(
@@ -530,5 +549,147 @@ export async function setProgrammingLessonStatus(
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
+  }));
+}
+
+export async function uploadDecipher(projectId: string): Promise<{
+  artifact_id: string;
+  summary: string;
+  launch: string;
+}> {
+  return parse(await fetch(`/api/projects/${projectId}/decipher/upload`, { method: "POST" }));
+}
+
+export type QualityPoint = {
+  kind: "import_quality" | "approval_corrections";
+  project: string;
+  created_at: string;
+  title?: string;
+  questions?: number;
+  sections?: number;
+  reread_parts?: number;
+  first_read_problems?: number;
+  lessons_used?: number;
+  extraction?: number;
+  programming?: number;
+};
+
+export async function getQualityTrend(): Promise<QualityPoint[]> {
+  return parse(await fetch("/api/learning/quality-trend?limit=500"));
+}
+
+export async function redoTask(taskId: string, action: string): Promise<{ task_id: string }> {
+  return parse(await fetch(`/api/tasks/${taskId}/redo`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+  }));
+}
+
+export type TargetCategory = {
+  label: string;
+  codes: number[];
+  sample_share?: number | null;
+  target_share?: number | null;
+  origin: "census" | "user" | "sample";
+  source_ids: string[];
+  note: string;
+};
+
+export type WeightingDimension = {
+  variable: string;
+  label: string;
+  categories: TargetCategory[];
+  note: string;
+};
+
+export type TargetSource = {
+  id: string;
+  title: string;
+  url: string;
+  publisher: string;
+  year: string;
+  note: string;
+  verified: boolean;
+};
+
+export type WeightResult = {
+  weight_variable: string;
+  dataset_id: string;
+  respondents: number;
+  converged: boolean;
+  iterations: number;
+  efficiency: number;
+  effective_base: number;
+  design_effect: number;
+  min_weight: number;
+  max_weight: number;
+  capped: number;
+  achieved: { variable: string; label: string; sample_share: number; target_share: number; weighted_share: number }[];
+  warnings: string[];
+};
+
+export type WeightingPlan = {
+  population: string;
+  dataset_id?: string | null;
+  dimensions: WeightingDimension[];
+  sources: TargetSource[];
+  settings: { min_weight: number; max_weight: number; max_iterations: number; tolerance: number };
+  research_note: string;
+  status: "proposed" | "built";
+  result?: WeightResult | null;
+};
+
+export type WeightingCandidate = WeightingDimension & { score: number; concept: string; suggested: boolean };
+
+export type WeightingState = {
+  artifact_id: string | null;
+  version: number | null;
+  plan: WeightingPlan | null;
+  project_weight: string | null;
+  default_population: string;
+  dataset_id: string | null;
+  candidates: WeightingCandidate[];
+  stale: boolean;
+};
+
+export async function getWeighting(projectId: string): Promise<WeightingState> {
+  return parse(await fetch(`/api/projects/${projectId}/weighting`));
+}
+
+/** Search official statistics for targets on the chosen variables. Takes a minute or two. */
+export async function proposeWeighting(
+  projectId: string,
+  population: string,
+  variables: string[],
+): Promise<{ summary: string; plan: WeightingPlan; version: number }> {
+  return parse(await fetch(`/api/projects/${projectId}/weighting/propose`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ population, variables }),
+  }));
+}
+
+export async function saveWeighting(
+  projectId: string,
+  plan: WeightingPlan,
+  expectedVersion: number | null,
+): Promise<{ plan: WeightingPlan; version: number; problems: string[] }> {
+  return parse(await fetch(`/api/projects/${projectId}/weighting`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ plan, expected_version: expectedVersion }),
+  }));
+}
+
+export async function buildWeighting(projectId: string): Promise<{ summary: string; plan: WeightingPlan; version: number }> {
+  return parse(await fetch(`/api/projects/${projectId}/weighting/build`, { method: "POST" }));
+}
+
+export async function setWeightingUse(projectId: string, enabled: boolean): Promise<{ project_weight: string | null }> {
+  return parse(await fetch(`/api/projects/${projectId}/weighting/use`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
   }));
 }

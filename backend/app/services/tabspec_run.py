@@ -17,13 +17,16 @@ _NO_SPEC = (
 )
 
 
-def run_saved_tabspec(db: Session, storage: Storage, project_id: str) -> dict[str, Any]:
+def run_saved_tabspec(
+    db: Session, storage: Storage, project_id: str, *, weight: str | None = None
+) -> dict[str, Any]:
     """Run the latest saved tab spec against the active dataset.
 
     Args:
         db: Session.
         storage: Project storage.
         project_id: Project id.
+        weight: Project weight, used when the saved spec does not name one.
 
     Returns:
         Summary payload with the crosstab artifact id.
@@ -38,6 +41,8 @@ def run_saved_tabspec(db: Session, storage: Storage, project_id: str) -> dict[st
     spec = TabSpec.model_validate(spec_row.content)
     dataset = _active_dataset(db, project_id)
     frame = load_frame(storage, dataset)
+    if weight and not spec.study_defaults.weight_variable and weight in frame.columns:
+        spec.study_defaults.weight_variable = weight
     book = run_spec_book(frame, dataset.variables, spec, dataset.id)
     revision, _file_id, gate = publish_crosstab_book(
         db,

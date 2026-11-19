@@ -1,8 +1,18 @@
 /** Live quality tab: tracking setup for a project's Decipher survey and its live results. */
 
-import { AlertTriangle, Check, Copy, ExternalLink, LayoutDashboard, Pause, Play, RefreshCw, ShieldCheck } from "lucide-react";
-import { useEffect, useState } from "react";
-import { type LiveQualityState, getLiveQuality, getLiveResults, programDecipher, setLiveQuality } from "./api";
+import { AlertTriangle, Check, Copy, Download, ExternalLink, FileUp, LayoutDashboard, Pause, Play, RefreshCw, ShieldCheck, UploadCloud } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  type LiveQualityState,
+  addTrackingToXml,
+  downloadUrl,
+  getLiveQuality,
+  getLiveResults,
+  programDecipher,
+  setLiveQuality,
+  uploadDecipher,
+  uploadFile,
+} from "./api";
 import { KpiGrid, LiveDot, RespondentTable, useLiveResults, useNow } from "./quality/QualityParts";
 import { QualityRulesCard } from "./quality/QualityRules";
 import { Button } from "./ui";
@@ -18,6 +28,8 @@ export function LiveQualityPanel({ projectId, onProgrammed, onError, onOpenDashb
   const [paused, setPaused] = useState(false);
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState(false);
+  const [notice, setNotice] = useState("");
+  const xmlInput = useRef<HTMLInputElement>(null);
   const now = useNow();
   const tracked = Boolean(state?.decipher.tracking_in_xml);
   const { results, error, refresh } = useLiveResults(
@@ -51,6 +63,36 @@ export function LiveQualityPanel({ projectId, onProgrammed, onError, onOpenDashb
       await onProgrammed();
     } catch (reason) {
       onError(reason instanceof Error ? reason.message : "Programming failed.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function addToXml(file: File) {
+    setBusy("xml");
+    setNotice("");
+    try {
+      const uploaded = await uploadFile(projectId, file);
+      const outcome = await addTrackingToXml(projectId, uploaded.file_id);
+      setState(outcome.state);
+      setNotice(outcome.summary);
+      await onProgrammed();
+    } catch (reason) {
+      onError(reason instanceof Error ? reason.message : "Tracking could not be added to that file.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function launch() {
+    setBusy("upload");
+    try {
+      const outcome = await uploadDecipher(projectId);
+      setNotice(outcome.summary);
+      setState(await getLiveQuality(projectId));
+      await onProgrammed();
+    } catch (reason) {
+      onError(reason instanceof Error ? reason.message : "The upload to Decipher failed.");
     } finally {
       setBusy("");
     }
@@ -101,14 +143,40 @@ export function LiveQualityPanel({ projectId, onProgrammed, onError, onOpenDashb
           </div>
         </div>
 
-        {state.enabled && !decipher.has_questionnaire && (
-          <p className="mt-3 rounded-md bg-sunken px-3 py-2 text-sm text-ink-2">Create a questionnaire first, then program it in Decipher.</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-line px-3 py-2">
+          <FileUp aria-hidden className="h-4 w-4 shrink-0 text-ink-2" />
+          <span className="min-w-0 flex-1 text-sm text-ink-2">
+            Programmed the survey elsewhere? Upload its Decipher XML and the tracking is added for you. Nothing else in the survey changes.
+          </span>
+          <input
+            ref={xmlInput}
+            accept=".xml,.txt,application/xml,text/xml"
+            aria-label="Decipher survey XML"
+            className="sr-only"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) void addToXml(file);
+            }}
+            type="file"
+          />
+          <Button disabled={busy === "xml"} onClick={() => xmlInput.current?.click()} size="sm" variant="primary">
+            {busy === "xml" ? "Adding tracking…" : "Upload a Decipher XML"}
+          </Button>
+        </div>
+        {notice && (
+          <p className="mt-2 rounded-md bg-accent-soft px-3 py-2 text-sm text-ink" role="status">{notice}</p>
+        )}
+        {state.enabled && !decipher.has_questionnaire && !decipher.programmed && (
+          <p className="mt-3 rounded-md bg-sunken px-3 py-2 text-sm text-ink-2">
+            Create a questionnaire and program it in Decipher, or upload a Decipher XML above.
+          </p>
         )}
         {state.enabled && decipher.has_questionnaire && !decipher.tracking_in_xml && (
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-sm text-warn">
             <AlertTriangle aria-hidden className="h-4 w-4 shrink-0" />
             <span className="min-w-0 flex-1">
-              The Decipher survey doesn't carry this tracking id yet. Programming it uploads a new version to Decipher.
+              The Decipher survey doesn't carry this tracking id yet. Programming it prepares a new version; upload it from the Decipher output when you're ready.
             </span>
             <Button disabled={busy === "program"} onClick={() => void program()} size="sm" variant="primary">
               {busy === "program" ? "Programming…" : "Program in Decipher"}
@@ -119,6 +187,7 @@ export function LiveQualityPanel({ projectId, onProgrammed, onError, onOpenDashb
           <div className="mt-3 rounded-md border border-line bg-sunken/60 px-3 py-2">
             <p className="text-xs font-medium text-ink-2">
               {decipher.uploaded && link ? "Share this survey link" : "Tracking is in the survey XML"}
+              {decipher.source_file && <span className="font-normal text-muted"> · from {decipher.source_file}</span>}
             </p>
             {decipher.uploaded && link ? (
               <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -140,7 +209,34 @@ export function LiveQualityPanel({ projectId, onProgrammed, onError, onOpenDashb
                 </a>
               </div>
             ) : (
-              <p className="mt-1 text-xs text-muted">Download the XML from the Decipher output and import it, or connect the Decipher key to upload it.</p>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                {decipher.file_id && (
+                  <a
+                    className="inline-flex h-7 items-center gap-1.5 rounded-md border border-line-strong bg-surface px-2.5 text-xs font-medium hover:bg-sunken"
+                    href={downloadUrl(decipher.file_id)}
+                  >
+                    <Download aria-hidden className="h-3.5 w-3.5" />
+                    Download XML
+                  </a>
+                )}
+                {decipher.awaiting_upload ? (
+                  <>
+                    <Button disabled={busy === "upload"} onClick={() => void launch()} size="sm" variant="primary">
+                      <UploadCloud aria-hidden className="h-3.5 w-3.5" />
+                      {busy === "upload" ? "Uploading…" : "Upload to Decipher"}
+                    </Button>
+                    <span className="text-xs text-muted">
+                      {decipher.survey_path
+                        ? `Updates the test survey at ${decipher.survey_path}.`
+                        : decipher.source_file
+                          ? "Creates a new Decipher test survey. Your original survey is not changed."
+                          : "Creates a new Decipher test survey."}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-xs text-muted">Import the XML into Decipher, or set DECIPHER_API_KEY to upload it from here.</span>
+                )}
+              </div>
             )}
           </div>
         )}

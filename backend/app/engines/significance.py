@@ -1,11 +1,17 @@
-"""Pairwise unpooled proportion tests. Weighted designs are not given invented p-values."""
+"""Pairwise column tests: unpooled proportions and Welch means.
+
+Weighted tables are tested on the weighted estimates with the Kish effective base in
+place of the respondent count, so a weight's loss of precision widens the test.
+"""
 
 from dataclasses import dataclass
 from math import sqrt
 from statistics import NormalDist
+from typing import Literal
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 from app.schemas.crosstab import CellResult
 
@@ -19,6 +25,8 @@ class ColumnCounts:
     count: int
     base: int
     estimate: float | None
+    standard_deviation: float | None = None
+    effective_base: float | None = None
 
 
 def apply_pairwise_letters(
@@ -30,6 +38,7 @@ def apply_pairwise_letters(
     correction: str,
     minimum_base: int,
     weighted: bool,
+    method: Literal["proportion", "mean"] = "proportion",
 ) -> list[str]:
     """Fill significance letters or mark a column that is too small to test.
 
@@ -45,16 +54,21 @@ def apply_pairwise_letters(
         secondary_alpha: Two-sided alpha for lowercase letters.
         correction: ``none`` or ``holm``. Holm applies to the uppercase test only.
         minimum_base: Smallest unweighted base that may be tested.
-        weighted: When true, tests are refused.
+        weighted: When true, weighted estimates are tested against the effective base.
+            Columns without an effective base are not tested.
+        method: ``proportion`` for an unpooled z-test on percentages, or ``mean``
+            for a Welch t-test on column means.
 
     Returns:
         Warnings to show on the table.
     """
     warnings: list[str] = []
-    if weighted:
+    if weighted and any(
+        column.effective_base is None for column in columns if column.estimate is not None
+    ):
         warnings.append(
-            "Significance was not calculated. Weighted percentages are not a "
-            "survey-design variance estimate, and no design effect was supplied."
+            "Significance was not calculated. The weighted table has no effective base "
+            "to test against."
         )
         for cell in cells_by_column.values():
             cell.test_status = "not_tested"
@@ -82,10 +96,14 @@ def apply_pairwise_letters(
             f"have a base of at least {minimum_base}."
         )
         return warnings
+    test = _two_means if method == "mean" else _two_proportion
+    label = "welch_two_mean_t" if method == "mean" else "unpooled_two_proportion_z"
+    if weighted:
+        label += "_effective_base"
     pairs: list[tuple[int, int, float]] = []
     for left in range(len(eligible)):
         for right in range(left + 1, len(eligible)):
-            p_value = _two_proportion(eligible[left], eligible[right])
+            p_value = test(eligible[left], eligible[right], weighted=weighted)
             if p_value is None:
                 continue
             pairs.append((left, right, p_value))
@@ -104,7 +122,7 @@ def apply_pairwise_letters(
         for column in (first, second):
             cell = cells_by_column[column.column_id]
             cell.test_status = "tested"
-            cell.test_method = "unpooled_two_proportion_z"
+            cell.test_method = label
             previous = best.get(column.column_id)
             if previous is None or p_value < previous:
                 best[column.column_id] = p_value
@@ -139,29 +157,74 @@ def _remember(bucket: dict[str, str], token: str) -> None:
         bucket[key] = token
 
 
-def _two_proportion(left: ColumnCounts, right: ColumnCounts) -> float | None:
+def _size(column: ColumnCounts, weighted: bool) -> float:
+    """The sample size a test uses: the effective base when weighted, else the count."""
+    if weighted:
+        return float(column.effective_base or 0.0)
+    return float(column.base)
+
+
+def _two_proportion(
+    left: ColumnCounts, right: ColumnCounts, *, weighted: bool = False
+) -> float | None:
     """Return a two-sided p-value for an unpooled two-proportion z-test.
 
-    The standard error is ``sqrt(p1(1-p1)/n1 + p2(1-p2)/n2)``.
+    The standard error is ``sqrt(p1(1-p1)/n1 + p2(1-p2)/n2)``. Weighted tables use the
+    weighted percentages and the effective bases.
 
     Args:
         left: First column count and base.
         right: Second column count and base.
+        weighted: Use the weighted estimate and the effective base.
 
     Returns:
         P-value, or None when a test is undefined.
     """
-    if min(left.base, right.base) <= 0:
+    n1, n2 = _size(left, weighted), _size(right, weighted)
+    if min(n1, n2) <= 0:
         return None
-    if left.count > left.base or right.count > right.base:
-        return None
-    p1 = left.count / left.base
-    p2 = right.count / right.base
-    variance = p1 * (1 - p1) / left.base + p2 * (1 - p2) / right.base
+    if weighted:
+        if left.estimate is None or right.estimate is None:
+            return None
+        p1, p2 = left.estimate / 100.0, right.estimate / 100.0
+    else:
+        if left.count > left.base or right.count > right.base:
+            return None
+        p1, p2 = left.count / left.base, right.count / right.base
+    variance = p1 * (1 - p1) / n1 + p2 * (1 - p2) / n2
     if variance <= 0:
-        return 1.0 if p1 == p2 else None
+        # Reason: 0% against 100% has no sampling variance, so the difference is certain.
+        return 1.0 if p1 == p2 else 0.0
     z_score = (p1 - p2) / sqrt(variance)
     p_value = 2 * (1 - NormalDist().cdf(abs(z_score)))
+    if not np.isfinite(p_value):
+        return None
+    return float(min(1.0, max(0.0, p_value)))
+
+
+def _two_means(left: ColumnCounts, right: ColumnCounts, *, weighted: bool = False) -> float | None:
+    """Return a two-sided p-value for a Welch t-test on two column means.
+
+    Args:
+        left: First column mean, standard deviation, and base.
+        right: Second column mean, standard deviation, and base.
+        weighted: Use the effective bases in place of the respondent counts.
+
+    Returns:
+        P-value, or None when either column lacks a standard deviation.
+    """
+    n1, n2 = _size(left, weighted), _size(right, weighted)
+    if min(n1, n2) <= 1 or left.estimate is None or right.estimate is None:
+        return None
+    if left.standard_deviation is None or right.standard_deviation is None:
+        return None
+    v1 = left.standard_deviation**2 / n1
+    v2 = right.standard_deviation**2 / n2
+    if v1 + v2 <= 0:
+        return 1.0 if left.estimate == right.estimate else 0.0
+    t_score = (left.estimate - right.estimate) / sqrt(v1 + v2)
+    freedom = (v1 + v2) ** 2 / (v1**2 / (n1 - 1) + v2**2 / (n2 - 1))
+    p_value = 2 * float(stats.t.sf(abs(t_score), freedom))
     if not np.isfinite(p_value):
         return None
     return float(min(1.0, max(0.0, p_value)))

@@ -149,8 +149,8 @@ def test_multi_response_net_dedupes_respondents() -> None:
     assert by_label["Any brand"].unweighted_numerator <= by_label["Any brand"].unweighted_base
 
 
-def test_significance_runs_unweighted_and_refuses_weights() -> None:
-    """A large unweighted contrast is tested. Varying weights are not given a p-value."""
+def test_significance_runs_unweighted_and_weighted() -> None:
+    """A large unweighted contrast is tested. Varying weights are tested on the effective base."""
     frame = pd.DataFrame(
         {
             "trust": [1] * 18 + [2] * 2 + [1] * 2 + [2] * 18,
@@ -173,12 +173,11 @@ def test_significance_runs_unweighted_and_refuses_weights() -> None:
         StudyDefaults(),
         _banners(),
     )
-    assert any(
-        cell.test_status == "not_tested" for row in weighted.rows for cell in row.cells.values()
-    )
-    assert all(
-        cell.p_value_if_tested is None for row in weighted.rows for cell in row.cells.values()
-    )
+    male = next(row for row in weighted.rows if row.label == "Low").cells["bn1:Male"]
+    # Male weights 1, 1, 0 leave two positive weights of 1: effective base 2.
+    assert male.effective_base_if_available == pytest.approx(2.0)
+    assert male.test_method == "unpooled_two_proportion_z_effective_base"
+    assert male.p_value_if_tested is not None
 
 
 def test_letters_use_lowercase_and_skip_a_small_base() -> None:

@@ -168,7 +168,7 @@ async def test_coding_without_anthropic_key_does_not_call_openai(
     monkeypatch.setitem(sys.modules, "anthropic", module)
     with pytest.raises(AppError) as caught:
         await run_structured(
-            _settings(tmp_path, anthropic_api_key="  "),
+            _settings(tmp_path, anthropic_api_key="  ", model_backup_enabled=False),
             name="Open-end coding specialist",
             instructions="Use only supplied code ids.",
             prompt="row 1",
@@ -192,7 +192,7 @@ async def test_claude_failure_does_not_fall_back_to_openai(
     _install_anthropic(monkeypatch, Messages())
     with pytest.raises(AppError) as caught:
         await run_structured(
-            _settings(tmp_path),
+            _settings(tmp_path, model_backup_enabled=False),
             name="Open-end coding specialist",
             instructions="Use only supplied code ids.",
             prompt="row 1",
@@ -259,3 +259,66 @@ def test_probe_hides_the_key_when_openai_listing_fails(
     assert "RuntimeError" in result["reason"]
     assert "sk-openai" not in result["reason"]
     assert "sk-ant-test" not in result["reason"]
+
+
+@pytest.mark.asyncio
+async def test_out_of_credits_falls_back_to_the_other_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A provider failure retries once on the other provider and records a note for the reply."""
+    from app.agents import sdk
+
+    class Messages:
+        def stream(self, **kwargs: object) -> object:
+            raise RuntimeError("Error code: 400 - Your credit balance is too low")
+
+    _install_anthropic(monkeypatch, Messages())
+    calls: list[str] = []
+
+    async def _openai(settings, **kwargs):
+        calls.append(kwargs["model"])
+        return _Batch(label="from backup")
+
+    monkeypatch.setattr(sdk, "_run_openai", _openai)
+    notes = sdk.start_model_notes()
+    result = await run_structured(
+        _settings(tmp_path),
+        name="Open-end coding specialist",
+        instructions="Use only supplied code ids.",
+        prompt="row 1",
+        output_type=_Batch,
+        role="coding",
+        session_id="session-1",
+    )
+    assert result.label == "from backup"
+    assert calls == ["gpt-6.1-sol"]
+    assert notes and "was used instead" in notes[0]
+
+
+@pytest.mark.asyncio
+async def test_a_bad_answer_does_not_switch_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An answer that does not fit the schema is not a provider failure."""
+    from app.agents import sdk
+
+    class Messages:
+        def stream(self, **kwargs: object) -> _Stream:
+            return _Stream(_reply("not json at all"))
+
+    _install_anthropic(monkeypatch, Messages())
+
+    async def _openai(settings, **kwargs):
+        raise AssertionError("should not switch")
+
+    monkeypatch.setattr(sdk, "_run_openai", _openai)
+    with pytest.raises(AppError):
+        await run_structured(
+            _settings(tmp_path),
+            name="Open-end coding specialist",
+            instructions="Use only supplied code ids.",
+            prompt="row 1",
+            output_type=_Batch,
+            role="coding",
+            session_id="session-1",
+        )

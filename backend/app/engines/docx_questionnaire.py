@@ -42,6 +42,13 @@ QUESTION_ID = re.compile(
     r"^(?:\|\s*)?(?:\[RED:\s*)?([A-Z]{1,6}\d{1,3}[A-Za-z]{0,2}(?:_[A-Z][A-Za-z/]*)?)(?:\.|:|\s|$)"
 )
 
+# A table row that labels the id in its own cell: "| QID | S1 |" or "| Question ID | HID_COUNTRY |".
+# The label makes any id-like word safe to take, including ones without digits.
+LABELLED_ID = re.compile(
+    r"^\|\s*(?:QID|Q\s?ID|Q\s?#|Question\s+(?:ID|No\.?|Number))\s*:?\s*\|\s*([A-Za-z][A-Za-z0-9_]{0,40})\s*\|",
+    re.I,
+)
+
 # A question numbered only by Word ("1. What is ...?", "9a. Please tell us ...?").
 # Answer options rarely end in a question mark or colon, so those two endings mark it.
 NUMBERED_QUESTION = re.compile(r"^(\d{1,3}[a-z]?)[.)]\s+(?=.{15,}).*[?:]\s*(?:\[[^\]]*\]\s*)*$")
@@ -55,6 +62,9 @@ CAMEL_ID = re.compile(r"^([a-z]{1,2}[A-Z][A-Za-z0-9_]{1,24})$")
 def question_id_of(text: str) -> str | None:
     """The question id a line starts with: S1, CAT11_US, Q1 for a plain "1. ...?" line, or qAGE alone."""
     stripped = text.strip()
+    labelled = LABELLED_ID.match(stripped)
+    if labelled:
+        return labelled.group(1)
     match = QUESTION_ID.match(stripped)
     if match:
         return match.group(1)

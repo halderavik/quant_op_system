@@ -16,6 +16,7 @@ class CellResult(BaseModel):
     unweighted_base: int | None = None
     weighted_base: float | None = None
     effective_base_if_available: float | None = None
+    standard_deviation: float | None = None
     p_value_if_tested: float | None = None
     significance_letters: str = ""
     test_status: Literal["tested", "not_tested"] = "not_tested"
@@ -57,6 +58,8 @@ class TableResult(BaseModel):
     banner_name: str = ""
     banner_caption: str = ""
     stub_name: str = ""
+    # Reason: the workbook's cover note states the settings the letters were tested with.
+    significance: dict[str, float] = Field(default_factory=dict)
 
 
 class TabBook(BaseModel):

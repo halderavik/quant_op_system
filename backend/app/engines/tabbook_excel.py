@@ -59,15 +59,7 @@ def _write_contents(sheet, book: TabBook, anchors: list[int]) -> None:
         color="FFFFFF",
         height=50,
     )
-    notes = [
-        (
-            "Test Methodology: Two-tailed Z-test for UNPOOLED proportions was performed "
-            "across column groups. Weighted tables do not receive significance letters, "
-            "because no survey-design variance was supplied."
-        ),
-        "Base Skipping: Significance tests are skipped and marked '.' if the column sample size (N) is 30 or less.",
-        "Markers: UPPERCASE letters indicate significance at 95% confidence; lowercase letters indicate 90% confidence.",
-    ]
+    notes = _method_notes(book)
     for offset, text in enumerate(notes, start=3):
         cell = sheet.cell(offset, 1, text)
         cell.font = _font(11)
@@ -101,6 +93,55 @@ def _write_contents(sheet, book: TabBook, anchors: list[int]) -> None:
     sheet.column_dimensions["B"].width = 22
     sheet.column_dimensions["C"].width = 96
     sheet.column_dimensions["D"].width = 18
+
+
+def _method_notes(book: TabBook) -> list[str]:
+    """Describe the significance settings the tables were tested with.
+
+    Args:
+        book: Computed book.
+
+    Returns:
+        Three cover lines: method, base rule, and letter meaning.
+    """
+    settings = {
+        tuple(sorted(table.significance.items())) for table in book.tables if table.significance
+    }
+    if not settings:
+        return [
+            "Test Methodology: Significance testing was not requested for these tables.",
+            "Base Skipping: Not applicable.",
+            "Markers: No significance letters are shown.",
+        ]
+    has_means = any(row.row_kind == "mean" for table in book.tables for row in table.rows)
+    method = (
+        "Test Methodology: Two-tailed Z-test for UNPOOLED proportions"
+        + (" and Welch t-test for means" if has_means else "")
+        + " within each banner group. The total column is not tested."
+        + (
+            " Weighted tables test the weighted percentages and means against the effective "
+            "base (sum of weights squared over the sum of squared weights)."
+            if any(table.weight_variable for table in book.tables)
+            else ""
+        )
+    )
+    if len(settings) > 1:
+        return [
+            method,
+            "Base Skipping: The minimum base differs between tables; see each table's footnote.",
+            "Markers: UPPERCASE and lowercase confidence levels differ between tables; "
+            "see each table's footnote.",
+        ]
+    values = dict(next(iter(settings)))
+    primary = f"{(1 - values['alpha']) * 100:.0f}%"
+    secondary = f"{(1 - values['secondary_alpha']) * 100:.0f}%"
+    return [
+        method,
+        f"Base Skipping: Significance tests are skipped and marked '.' if the column sample "
+        f"size (N) is below {int(values['minimum_base'])}.",
+        f"Markers: UPPERCASE letters indicate significance at {primary} confidence; "
+        f"lowercase letters indicate {secondary} confidence.",
+    ]
 
 
 def _write_tables(sheet, book: TabBook) -> list[int]:
@@ -277,14 +318,21 @@ def _base_line(table: TableResult) -> str:
     total = next((column for column in table.columns if column.id == "total"), None)
     probe = total or (table.columns[0] if table.columns else None)
     base: int | None = None
+    cell = None
     if probe and table.rows:
         cell = table.rows[0].cells.get(probe.id)
         if cell is not None:
             base = cell.unweighted_base
-    weight = "Weighted" if table.weight_variable else "Unweighted"
     shown = base if base is not None else "—"
     banner = table.banner_caption or _banner_name(table)
-    return f"N={shown} | {banner} | {weight}"
+    if not table.weight_variable:
+        return f"N={shown} | {banner} | Unweighted"
+    detail = ""
+    if cell is not None and cell.weighted_base is not None:
+        effective = cell.effective_base_if_available
+        detail = f" (weighted {cell.weighted_base:,.0f}"
+        detail += f", effective {effective:,.0f})" if effective else ")"
+    return f"N={shown}{detail} | {banner} | Weighted by {table.weight_variable}"
 
 
 def _banner_name(table: TableResult) -> str:

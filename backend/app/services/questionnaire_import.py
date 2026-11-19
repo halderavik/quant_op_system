@@ -27,7 +27,13 @@ from app.engines.docx_questionnaire import (
 )
 from app.engines.flow import validate_questionnaire
 from app.engines.sow import extract_brief_bytes
-from app.engines.verbatim import FidelityReport, check_exact, mark_codes_from_file, stated_code
+from app.engines.verbatim import (
+    FidelityReport,
+    attach_source_excerpts,
+    check_exact,
+    mark_codes_from_file,
+    stated_code,
+)
 from app.errors import AppError
 from app.learning.lessons import import_corrections, lessons_block, relevant_to_text
 from app.schemas.questionnaire import (
@@ -180,6 +186,7 @@ async def import_exact(
     other_none_codes: bool = False,
     lessons: list[dict] | None = None,
     corrections: list[dict] | None = None,
+    stats: dict | None = None,
 ) -> Questionnaire:
     """Transcribe a questionnaire file without changing it.
 
@@ -229,9 +236,14 @@ async def import_exact(
                 session_id,
             )
 
+    done = [0]
+
     async def section(index: int, body: str) -> SectionImport:
         async with limit:
-            return await _section(settings, header, body, session_id, lessons=lessons)
+            result = await _section(settings, header, body, session_id, lessons=lessons)
+        done[0] += 1
+        on_stage(f"Read {done[0]} of {len(sections)} parts of the file")
+        return result
 
     results = await asyncio.gather(frame(), *(section(i, body) for i, body in enumerate(sections)))
     front: QuestionnaireFrame = results[0]
@@ -243,6 +255,15 @@ async def import_exact(
         report = check_exact(document, study.text, set(front.not_question_ids))
         if attempt == 0:
             first_problems = dict(report.issues)
+            if stats is not None:
+                stats.update(
+                    sections=len(sections),
+                    first_read_problems=sum(len(items) for items in report.issues.values()),
+                    reread_parts=0,
+                    lessons_used=len(lessons or []),
+                )
+        if stats is not None:
+            stats["attempts"] = attempt + 1
         if report.ok:
             if attempt > 0 and corrections is not None:
                 by_id = {key: body for body in sections for key in question_ids(body)}
@@ -258,6 +279,8 @@ async def import_exact(
         ]
         if attempt == MAX_RETRIES or not (bad or front_problems):
             raise AppError(_failure_message(study.filename, report), "questionnaire_import", 422)
+        if stats is not None:
+            stats["reread_parts"] = stats.get("reread_parts", 0) + len(bad) + bool(front_problems)
         on_stage(
             f"Re-reading {len(bad) + bool(front_problems)} part(s) that did not match the file"
         )
@@ -281,7 +304,9 @@ async def import_exact(
 
         for index, fixed in await asyncio.gather(*(redo(i) for i in bad)):
             parts[index] = fixed
-    document = mark_codes_from_file(drop_unprogrammable_logic(document), study.text)
+    document = attach_source_excerpts(
+        mark_codes_from_file(drop_unprogrammable_logic(document), study.text), study.text
+    )
     if other_none_codes:
         document = house_codes(document)
     document.source = QuestionnaireSource(
@@ -610,6 +635,7 @@ async def _run(
                     output_type=output_type,
                     role="questionnaire",
                     session_id=f"{session_id}-import-{uuid.uuid4().hex[:8]}",
+                    cache=True,
                 ),
                 timeout=CALL_SECONDS,
             )

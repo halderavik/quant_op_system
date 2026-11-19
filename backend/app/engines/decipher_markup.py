@@ -1,5 +1,6 @@
 """Shared Decipher element helpers."""
 
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
@@ -97,7 +98,10 @@ def _question_element(
     _notes(parent, question)
     spec = spec_of(question)
     shuffle = []
-    if question.randomize_options and (question.options or question.matrix_items):
+    shuffles_rows, shuffle_by, problem = row_order(question, build)
+    if problem:
+        _warn(build, problem)
+    if shuffles_rows:
         shuffle.append("rows")
     if spec.randomize_columns:
         shuffle.append("cols")
@@ -125,7 +129,8 @@ def _question_element(
         optional="0" if question.required else "1",
         cond="0" if spec.hidden else _condition(question, build),
         shuffle=",".join(shuffle) or None,
-        shuffleBy=build.labels.get(spec.same_order_as or ""),
+        shuffleBy=shuffle_by,
+        sortRows="asc,survey" if spec.sort_alphabetically else None,
         rowCond=row_cond,
         **attrs,
     )
@@ -155,9 +160,27 @@ def _titles(node: ET.Element, question: Question, build: "SurveyBuild | None" = 
         question: Question.
         build: Shared build state, for piping.
     """
-    add_element(node, "title", _piped(question.text, question, build))
+    title = add_element(node, "title", _piped(question.text, question, build))
+    for image in spec_of(question).images:
+        name = image_file(image)
+        ET.SubElement(title, "br")
+        ET.SubElement(title, "img", {"src": f"[rel {name}]", "width": "auto"})
+        if build is not None:
+            _warn(build, f"{question.id}: upload {name} to the survey's static files ({image})")
     if question.instruction:
         add_element(node, "comment", _piped(question.instruction, question, build))
+
+
+_IMAGE_FILE = re.compile(r"[\w.-]+\.(?:png|jpe?g|gif|webp|svg|mp4)$", re.I)
+
+
+def image_file(image: str) -> str:
+    """The file name to reference: the name the questionnaire gives, or one made from its description."""
+    image = image.strip()
+    if _IMAGE_FILE.fullmatch(image):
+        return image
+    stem = re.sub(r"[^A-Za-z0-9]+", "_", image).strip("_")[:40] or "image"
+    return f"{stem}.png"
 
 
 def _piped(text: str, question: Question, build: "SurveyBuild | None") -> str:
@@ -317,7 +340,9 @@ def _option_rows(
         if option.open_text:
             attrs["open"] = "1"
             attrs["openSize"] = "25"
-        if question.randomize_options and (
+        # Reason: a question can shuffle because it follows another's order, so the
+        # element's own shuffle decides whether anchored rows must stay put.
+        if "rows" in (node.get("shuffle") or "") and (
             option.anchor or option.open_text or _exclusive(option, question)
         ):
             attrs["randomize"] = "0"
@@ -495,6 +520,63 @@ def _item(
         warnings=warnings,
         punches=punches,
     )
+
+
+def _shufflable(question: Question) -> bool:
+    """Whether the question has at least two rows to put in random order.
+
+    A number or text entry whose only "row" is a no-answer box has nothing to shuffle.
+    """
+    noanswer = {str(code) for code in spec_of(question).noanswer_codes}
+    rows = question.matrix_items or [o for o in question.options if str(o.code) not in noanswer]
+    return len(rows) > 1
+
+
+def _row_set(question: Question, build: SurveyBuild) -> list[str]:
+    """The row labels Decipher compares for shuffleBy, without no-answer boxes."""
+    noanswer = {str(code) for code in spec_of(question).noanswer_codes}
+    return sorted(
+        label for code, label in build.rows.get(question.id, {}).items() if code not in noanswer
+    )
+
+
+def row_order(
+    question: Question, build: SurveyBuild, seen: frozenset[str] = frozenset()
+) -> tuple[bool, str | None, str | None]:
+    """How a question's rows are ordered: shuffled, following another question, or fixed.
+
+    Decipher accepts ``shuffleBy`` only on a question whose rows shuffle, following a
+    question that shuffles with the same rows. "Same order as" a question in a fixed
+    order needs nothing, and one whose answer list differs cannot share its order.
+
+    Args:
+        question: Question being built.
+        build: Shared build state.
+        seen: Questions already on this "same order as" chain, to stop a loop.
+
+    Returns:
+        Whether the rows shuffle, the ``shuffleBy`` label or None, and a warning or None.
+    """
+    if not _shufflable(question):
+        return False, None, None
+    own = question.randomize_options
+    leader_id = spec_of(question).same_order_as or ""
+    leader = build.questions.get(leader_id)
+    label = build.labels.get(leader_id)
+    if leader is None or label is None or leader_id == question.id or leader_id in seen:
+        return own, None, None
+    leader_shuffles, _, _ = row_order(leader, build, seen | {question.id})
+    if not leader_shuffles:
+        return own, None, None
+    if _row_set(question, build) != _row_set(leader, build):
+        return (
+            True,
+            None,
+            f"{question.id} should keep the same order as {leader_id}, but their answer lists "
+            "differ, so Decipher cannot share the order. It is shuffled on its own; check "
+            "whether the order should match.",
+        )
+    return True, label, None
 
 
 def _warn(build: SurveyBuild, message: str) -> None:

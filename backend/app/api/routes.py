@@ -5,7 +5,8 @@ import json
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import text
+from pydantic import BaseModel
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.agents.model_router import ModelRouter
@@ -17,7 +18,9 @@ from app.api.routes_learning import router as learning_router
 from app.api.routes_library import router as library_router
 from app.api.routes_live_quality import router as live_quality_router
 from app.api.routes_sample import router as sample_router
+from app.api.routes_weighting import router as weighting_router
 from app.errors import AppError
+from app.models.tables import Task
 from app.repositories.records import (
     ProjectRepository,
     TaskRepository,
@@ -32,6 +35,7 @@ router.include_router(jobs_router)
 router.include_router(learning_router)
 router.include_router(connectors_router)
 router.include_router(live_quality_router)
+router.include_router(weighting_router)
 
 
 @router.get("/artifacts/{artifact_id}/tables/{table_id}")
@@ -290,6 +294,15 @@ def list_messages(conversation_id: str, db: Session = Depends(get_db)) -> list[d
         Messages.
     """
     rows = ProjectRepository(db).messages(conversation_id)
+    task_ids = {row.task_id for row in rows if row.task_id and row.role == "assistant"}
+    intents = (
+        {
+            task.id: str((task.contract or {}).get("intent") or "")
+            for task in db.scalars(select(Task).where(Task.id.in_(task_ids))).all()
+        }
+        if task_ids
+        else {}
+    )
     return [
         {
             "id": row.id,
@@ -297,9 +310,61 @@ def list_messages(conversation_id: str, db: Session = Depends(get_db)) -> list[d
             "content": row.content,
             "task_id": row.task_id,
             "sequence": row.sequence,
+            "intent": intents.get(row.task_id or "", "") if row.role == "assistant" else "",
         }
         for row in rows
     ]
+
+
+class RedoIn(BaseModel):
+    """Redo a request with a chosen action."""
+
+    action: str
+
+
+@router.post("/tasks/{task_id}/redo", status_code=201)
+async def redo_task(
+    task_id: str, body: RedoIn, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    """Run the request of an earlier task again with the action the person chose.
+
+    Args:
+        task_id: The task whose request is redone.
+        body: Chosen action.
+        request: Current request.
+        db: Session.
+
+    Returns:
+        The new task id.
+    """
+    from app.agents.redo import REDO_ACTIONS, redo_request
+
+    if body.action not in REDO_ACTIONS:
+        raise AppError("Unknown action.", "bad_request", 400)
+    previous = TaskRepository(db).get(task_id)
+    contract = previous.contract or {}
+    intent, text, label = redo_request(str(contract.get("user_request") or ""), body.action)
+    projects = ProjectRepository(db)
+    projects.add_message(previous.conversation_id, "user", f"Redo as: {label}")
+    task = TaskRepository(db).create(
+        previous.project_id,
+        previous.conversation_id,
+        {
+            "user_request": text,
+            "file_ids": list(contract.get("file_ids") or []),
+            "user_intent": intent,
+        },
+    )
+    db.commit()
+    settings = request.app.state.settings
+    orchestrator = Orchestrator(
+        settings, request.app.state.session_factory, request.app.state.storage
+    )
+    if settings.run_tasks_inline:
+        await orchestrator.run(task.id)
+    else:
+        asyncio.create_task(orchestrator.run(task.id))
+    return {"task_id": task.id}
 
 
 @router.post("/conversations/{conversation_id}/messages", status_code=201)

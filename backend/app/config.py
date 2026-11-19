@@ -26,11 +26,21 @@ class Settings(BaseSettings):
     model_questionnaire: str = "gpt-6.1-sol"
     model_tabspec: str = "gpt-6.1-sol"
     model_analysis: str = "gpt-6.1-sol"
-    model_coding: str = "claude-sonnet-5-5"
+    model_coding: str = "gpt-6.1-sol"
     model_validator: str = "gpt-6.1-sol"
     model_general: str = "gpt-6.1-sol"
-    model_synthetic: str = "claude-sonnet-5-5"
+    model_synthetic: str = "gpt-6.1-sol"
+    # Reason: census target research needs a model with web search (ChatGPT or Claude).
+    model_research: str = "gpt-6.1-sol"
+    research_max_searches: int = 8
     model_fallback: str = "gpt-6.1-sol"
+    # Reason: when one provider is out of credits, rate limited, or down, calls retry once on
+    # the other provider's model, if its key is set.
+    model_backup_enabled: bool = True
+    # Reason: a retried import or plan reuses answers that already finished.
+    model_call_cache: bool = True
+    model_backup_openai: str = "gpt-6.1-sol"
+    model_backup_anthropic: str = "claude-opus-5-5"
     # Reason: the Ad Hoc AutoCoder calls the OpenAI Responses API with this model.
     model_autocoder: str = "gpt-5-mini"
     # Reason: sentence_transformers (BGE) retrieves candidate codes better; tfidf needs no download.
@@ -58,6 +68,9 @@ class Settings(BaseSettings):
     # Reason: connector OAuth clients belong to the organisation. Values never reach the browser.
     google_mcp_client_id: str = ""
     google_mcp_client_secret: str = ""
+    # The Drive API connector served by this backend; works for any Google account.
+    google_drive_client_id: str = ""
+    google_drive_client_secret: str = ""
     slack_mcp_client_id: str = ""
     slack_mcp_client_secret: str = ""
     microsoft_mcp_client_id: str = ""
@@ -161,6 +174,7 @@ class Settings(BaseSettings):
             "validator": self.model_validator,
             "general": self.model_general,
             "synthetic": self.model_synthetic,
+            "research": self.model_research,
         }
         return mapping.get(role, self.model_fallback)
 

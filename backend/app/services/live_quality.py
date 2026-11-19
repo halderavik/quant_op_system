@@ -130,6 +130,12 @@ def decipher_status(db: Session, project_id: str, survey_id: str) -> dict[str, A
         "tracking_in_xml": bool(survey_id) and content.get("tracking_survey_id") == survey_id,
         "has_questionnaire": ArtifactRepository(db).latest_of_type(project_id, "questionnaire")
         is not None,
+        # Set when the survey came from an uploaded XML rather than the questionnaire.
+        "source_file": content.get("source_file")
+        if content.get("source") == "uploaded_xml"
+        else None,
+        "file_id": content.get("file_id"),
+        "awaiting_upload": content.get("launch") == "awaiting_confirmation",
     }
 
 

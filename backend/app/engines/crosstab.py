@@ -243,6 +243,12 @@ def run_table(
         banner_caption=banner_caption,
         stub_name=stub_name,
     )
+    if table.significance.enabled:
+        result.significance = {
+            "alpha": table.significance.alpha,
+            "secondary_alpha": table.significance.secondary_alpha,
+            "minimum_base": table.significance.minimum_effective_base,
+        }
     result.validation = {"status": "passed", "checks": ["bases", "percentage_bounds"]}
     return result
 
@@ -354,7 +360,7 @@ def _signify(
     filter_mask: pd.Series,
     use_weight: bool,
 ) -> list[str]:
-    """Attach pairwise letters to category rows.
+    """Attach pairwise letters to percentage and mean rows.
 
     Args:
         rows: Computed rows.
@@ -374,8 +380,9 @@ def _signify(
     for column in banner_cols:
         grouped.setdefault(column.id.split(":", 1)[0], []).append(column)
     for row in rows:
-        if row.row_kind not in {"category", "net", "top_box", "bottom_box"}:
+        if row.row_kind not in {"category", "net", "top_box", "bottom_box", "mean"}:
             continue
+        method = "mean" if row.row_kind == "mean" else "proportion"
         for group in grouped.values():
             counts = []
             for col in group:
@@ -387,6 +394,8 @@ def _signify(
                         int(cell.unweighted_numerator or 0),
                         int(cell.unweighted_base or 0),
                         cell.estimate,
+                        cell.standard_deviation,
+                        cell.effective_base_if_available,
                     )
                 )
             warnings.extend(
@@ -398,6 +407,7 @@ def _signify(
                     correction=table.significance.correction,
                     minimum_base=table.significance.minimum_effective_base,
                     weighted=varied,
+                    method=method,
                 )
             )
     return list(dict.fromkeys(warnings))
@@ -444,11 +454,17 @@ def _footnotes(table: TableSpec, defaults: StudyDefaults, weight_name: str | Non
         secondary = f"{(1 - table.significance.secondary_alpha) * 100:.0f}"
         minimum = table.significance.minimum_effective_base
         notes.append(
-            "Two-tailed z-test for unpooled proportions within each banner group. "
-            f"UPPERCASE letters are significant at {primary}%. "
+            "Two-tailed z-test for unpooled proportions within each banner group"
+            + ("; Welch t-test for means. " if table.table_type == "numeric" else ". ")
+            + f"UPPERCASE letters are significant at {primary}%. "
             f"Lowercase letters are significant at {secondary}%. "
             f"A column base below {minimum} is marked '.' and is not tested. "
-            "Columns in different groups are not compared. The total column is not tested. "
-            "Letters are not calculated when weights vary and no design effect was supplied."
+            "Columns in different groups are not compared. The total column is not tested."
+            + (
+                " Weighted percentages and means are tested against the effective base "
+                "(sum of weights squared over the sum of squared weights)."
+                if weight_name
+                else ""
+            )
         )
     return notes

@@ -412,3 +412,65 @@ def test_skip_on_a_derived_variable_uses_its_rows() -> None:
         _root(program.xml).find(".//textarea[@label='qDIG']").get("cond")
         == "not ((hType.r3 or hType.r4))"
     )
+
+
+def test_list_from_a_derived_variable_keeps_the_none_answer():
+    """[INSERT BRANDS TOTALAWARE] / None of the above copies the brands, then keeps None."""
+    from app.services.programming_spec import QuestionPlan, _apply
+
+    awareness = Question(
+        id="CAT2",
+        type="grid",
+        text="How familiar are you with each vendor?",
+        options=[Option(code=1, label="Never heard"), Option(code=2, label="Heard of")],
+        matrix_items=["Amazon", "Staples"],
+    )
+    preferred = Question(
+        id="CAT4",
+        type="single_select",
+        text="Which vendor would you prefer?",
+        options=[Option(code=99, label="None of the above", anchor=True)],
+    )
+    total_aware = DerivedVariable(
+        id="TOTALAWARE",
+        label="TOTALAWARE",
+        definition="Punch brand if aware at CAT2.",
+        multiple=True,
+        after="CAT2",
+        values=[DerivedValue(code=1, label="Amazon"), DerivedValue(code=2, label="Staples")],
+    )
+    document = Questionnaire(
+        id="q",
+        title="Vendors",
+        questions=[awareness, preferred],
+        derived_variables=[total_aware],
+    )
+    plan = QuestionPlan(
+        question_id="CAT4",
+        list_from="TOTALAWARE",
+        programming=ProgrammingSpec(row_condition=RowCondition(source="TOTALAWARE")),
+    )
+    result = _apply(document, [plan])
+    options = result.questions[1].options
+    assert [(o.code, o.label) for o in options] == [
+        (1, "Amazon"),
+        (2, "Staples"),
+        (99, "None of the above"),
+    ]
+    xml = compile_decipher(result).xml
+    assert 'rowCond="TOTALAWARE[row]"' in xml
+
+
+def test_list_from_leaves_a_question_with_its_own_list_alone():
+    """A question with real answers of its own is never given another list."""
+    from app.services.programming_spec import QuestionPlan, _apply
+
+    first = Question(
+        id="Q1", type="single_select", text="Pick one", options=[Option(code=1, label="A")]
+    )
+    second = Question(
+        id="Q2", type="single_select", text="Pick again", options=[Option(code=1, label="B")]
+    )
+    document = Questionnaire(id="q", title="t", questions=[first, second])
+    result = _apply(document, [QuestionPlan(question_id="Q2", list_from="Q1")])
+    assert [o.label for o in result.questions[1].options] == ["B"]

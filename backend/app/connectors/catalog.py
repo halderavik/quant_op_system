@@ -14,7 +14,7 @@ class CatalogEntry:
         name: Display name.
         category: Short grouping label.
         description: What a researcher uses it for.
-        server_url: Remote MCP endpoint. ``{tenant_id}`` is filled from settings.
+        server_url: MCP endpoint. ``{tenant_id}`` and ``{base_url}`` (this backend) are filled from settings.
         auth: ``oauth`` (sign in with the provider) or ``token`` (URL plus optional bearer token).
         scopes: OAuth scopes requested at sign-in.
         authorize_url: Fallback authorization endpoint when discovery fails.
@@ -63,10 +63,14 @@ CATALOG: tuple[CatalogEntry, ...] = (
         token_url="https://oauth2.googleapis.com/token",
         extra_authorize={"access_type": "offline", "prompt": "consent"},
         client_env=("GOOGLE_MCP_CLIENT_ID", "GOOGLE_MCP_CLIENT_SECRET"),
-        status_note="Google's Drive MCP server is in Developer Preview.",
+        status_note=(
+            "Google's Drive MCP server is in Developer Preview and needs a Google Workspace "
+            "account. For a personal Google account, use Google Drive (any Google account)."
+        ),
         setup=(
             "Enroll the Google Workspace domain in the Workspace Developer Preview Program.",
-            "In Google Cloud, create a project and enable the Google Drive MCP API (drivemcp.googleapis.com).",
+            "In Google Cloud, create a project and enable the Google Drive API (drive.googleapis.com) "
+            "and the Google Drive MCP API (drivemcp.googleapis.com).",
             "Configure the OAuth consent screen, then create an OAuth client of type Web application "
             "and select 'Use this client for an AI-powered agent'.",
             "Add the redirect URI shown below to the client.",
@@ -78,6 +82,45 @@ CATALOG: tuple[CatalogEntry, ...] = (
             "Save the report deck to Google Drive",
         ),
         docs_url="https://developers.google.com/workspace/drive/api/guides/configure-mcp-server",
+    ),
+    CatalogEntry(
+        id="google_drive_api",
+        name="Google Drive (any Google account)",
+        category="Files",
+        description=(
+            "The same Drive connector for any Google account, including a personal Gmail "
+            "account. Pull briefs, questionnaires, and data files in, and save decks, tab books, "
+            "and questionnaires back, through Google's standard Drive API."
+        ),
+        server_url="{base_url}/api/builtin/google-drive/mcp",
+        auth="oauth",
+        scopes=(
+            "https://www.googleapis.com/auth/drive.readonly",
+            "https://www.googleapis.com/auth/drive.file",
+        ),
+        authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+        token_url="https://oauth2.googleapis.com/token",
+        extra_authorize={"access_type": "offline", "prompt": "consent"},
+        client_env=("GOOGLE_DRIVE_CLIENT_ID", "GOOGLE_DRIVE_CLIENT_SECRET"),
+        status_note=(
+            "Runs inside Quant OS. While the Google app is in Testing, sign-in shows an "
+            "unverified-app warning and must be repeated every 7 days."
+        ),
+        setup=(
+            "In Google Cloud, create a project and enable the Google Drive API (drive.googleapis.com).",
+            "Configure the OAuth consent screen. With Google Workspace choose Internal. With a "
+            "personal Google account choose External, leave it in Testing, and add each person "
+            "who will connect as a test user.",
+            "Under Data Access, add the scopes drive.readonly and drive.file.",
+            "Create an OAuth client of type Web application and add the redirect URI shown below.",
+            "Put the client id and secret in backend/.env as GOOGLE_DRIVE_CLIENT_ID and "
+            "GOOGLE_DRIVE_CLIENT_SECRET, then restart the backend.",
+        ),
+        examples=(
+            "Import the study brief from Google Drive",
+            "Save the report deck to Google Drive",
+        ),
+        docs_url="https://developers.google.com/workspace/drive/api/guides/about-sdk",
     ),
     CatalogEntry(
         id="slack",
@@ -196,7 +239,7 @@ def client_credentials(settings: Settings, item: CatalogEntry) -> tuple[str, str
 
 
 def fill(template: str, settings: Settings, overrides: dict | None = None) -> str:
-    """Fill ``{tenant_id}`` in a URL template.
+    """Fill ``{tenant_id}`` and ``{base_url}`` in a URL template.
 
     Args:
         template: URL template.
@@ -207,7 +250,8 @@ def fill(template: str, settings: Settings, overrides: dict | None = None) -> st
         URL with the tenant filled. ``common`` when no tenant is set.
     """
     tenant = str((overrides or {}).get("tenant_id") or settings.microsoft_tenant_id or "common")
-    return template.replace("{tenant_id}", tenant)
+    base = settings.public_base_url.rstrip("/")
+    return template.replace("{tenant_id}", tenant).replace("{base_url}", base)
 
 
 def redirect_uri(settings: Settings) -> str:

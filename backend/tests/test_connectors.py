@@ -60,7 +60,7 @@ def test_catalog_lists_ready_made_connectors_without_secrets(client: TestClient)
     """Drive, Slack, and Microsoft 365 are listed, unconfigured, with setup steps."""
     body = client.get("/api/connectors").json()
     ids = [item["catalog_id"] for item in body]
-    assert ids == ["google_drive", "slack", "microsoft_365"]
+    assert ids == ["google_drive", "google_drive_api", "slack", "microsoft_365"]
     drive = body[0]
     assert drive["configured"] is False
     assert drive["status"] == "disconnected"

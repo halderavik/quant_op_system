@@ -446,11 +446,15 @@ def _crosstab_summary(result: TableResult, fields: dict[str, Any]) -> str:
     """
     weight = fields.get("weight_variable") or "no weight"
     tested = any(cell.test_status == "tested" for row in result.rows for cell in row.cells.values())
-    significance = (
-        "Pairwise letters are shown where the unweighted test was valid."
-        if tested
-        else "Significance was not shown when the test assumptions were not met."
-    )
+    if not tested:
+        significance = "Significance was not shown when the test assumptions were not met."
+    elif result.weight_variable:
+        significance = (
+            "Pairwise letters compare the weighted percentages, tested on each column's "
+            "effective base."
+        )
+    else:
+        significance = "Pairwise letters are shown where the test was valid."
     return (
         f"Created {result.table_id}: {result.title} using {weight}. "
         f"Values follow the {result.percent_type} percentage definition, with bases stored on each cell. "

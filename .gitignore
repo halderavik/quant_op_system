@@ -19,3 +19,7 @@ htmlcov/
 *.parquet
 .DS_Store
 Thumbs.db
+
+# Benchmark: client questionnaires and results stay local
+backend/benchmarks*.local.json
+backend/benchmark_results/

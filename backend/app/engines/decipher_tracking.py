@@ -150,7 +150,9 @@ def add_tracking(
     script = tracker_script(survey_id, api_base, token, rules)
     style = (
         f"\n  <!-- Quant OS live quality tracking: survey id {survey_id} -->\n"
-        f'  <style name="respview.client.js"><![CDATA[\n{script}]]></style>'
+        # Reason: mode="after" adds to the survey's own page scripts. Without it, a
+        # programmer's earlier respview.client.js styles would be replaced.
+        f'  <style mode="after" name="respview.client.js"><![CDATA[\n{script}]]></style>'
     )
     anchor = xml.find("</samplesources>")
     if anchor == -1:
@@ -179,8 +181,42 @@ def add_tracking(
     if closing == -1:
         raise ValueError("The survey XML has no closing survey tag.")
     xml = xml[:closing] + "\n".join(page) + "\n" + xml[closing:]
-    ET.fromstring(xml.split("?>", 1)[1] if xml.startswith("<?xml") else xml)
+    parse_survey(xml)
     return xml
+
+
+# A prefixed tag or attribute name, such as ss:disableBackButton or builder:wizard.
+_PREFIXED = re.compile(r"[<\s/]([A-Za-z_][\w.-]*):[A-Za-z_][\w.-]*(?=\s*=|[\s/>])")
+_DECLARED = re.compile(r"\bxmlns:([A-Za-z_][\w.-]*)\s*=")
+
+
+def parse_survey(xml: str) -> ET.Element:
+    """Parse survey XML the way Decipher reads it.
+
+    Decipher accepts prefixes such as ``ss:`` or ``builder:`` without a namespace
+    declaration, which a strict XML parser refuses. A copy with those prefixes declared
+    is parsed; the XML itself is not changed.
+
+    Args:
+        xml: Survey XML.
+
+    Returns:
+        The root element.
+
+    Raises:
+        ET.ParseError: The XML is not well formed.
+    """
+    body = xml.split("?>", 1)[1] if xml.lstrip().startswith("<?xml") else xml
+    without_scripts = re.sub(r"<!\[CDATA\[.*?\]\]>|<!--.*?-->", "", body, flags=re.S)
+    missing = {
+        prefix for prefix in _PREFIXED.findall(without_scripts) if prefix not in {"xml", "xmlns"}
+    } - set(_DECLARED.findall(body))
+    if missing:
+        declarations = "".join(
+            f' xmlns:{prefix}="urn:decipher:{prefix}"' for prefix in sorted(missing)
+        )
+        body = re.sub(r"<survey\b", lambda found: found.group(0) + declarations, body, count=1)
+    return ET.fromstring(body)
 
 
 _EARLY_QUESTION = (
@@ -197,8 +233,9 @@ _EARLY_TERM = (
 def _add_early_check(xml: str, after_page: int) -> str:
     """Put the hidden in-survey check on page ``after_page`` and terminate bots after it.
 
-    Pages end at ``<suspend/>``. A survey with fewer pages gets no in-survey check;
-    the final check still runs.
+    Pages end at ``<suspend/>``. Only page breaks every respondent reaches count (see
+    :func:`page_breaks`). A survey with fewer of them gets no in-survey check; the final
+    check still runs.
 
     Args:
         xml: Survey XML with tracking.
@@ -207,12 +244,95 @@ def _add_early_check(xml: str, after_page: int) -> str:
     Returns:
         Survey XML.
     """
-    breaks = list(re.finditer(r"<suspend\s*/>", xml))
+    breaks = page_breaks(xml)
     if len(breaks) < after_page:
         return xml
     found = breaks[after_page - 1]
     start, end = found.start(), found.end()
     return xml[:start] + _EARLY_QUESTION + "    " + xml[start:end] + _EARLY_TERM + xml[end:]
+
+
+# Comments, CDATA sections (scripts may contain "<"), and element tags, in order.
+_TAG = re.compile(r"<!--.*?-->|<!\[CDATA\[.*?\]\]>|<(/?)([A-Za-z][\w:.-]*)([^>]*?)(/?)>", re.S)
+_COND = re.compile(r"""\bcond\s*=\s*(["'])(.*?)\1""", re.S)
+
+
+def page_breaks(xml: str) -> list[re.Match]:
+    """Page breaks (``<suspend/>``) that every respondent reaches.
+
+    A break inside a ``<loop>`` repeats for each loop item, and one inside a block
+    with a condition is skipped by some respondents, so neither can hold the
+    in-survey check.
+
+    Args:
+        xml: Survey XML.
+
+    Returns:
+        Matches of the usable ``<suspend/>`` tags, in order.
+    """
+    unsafe: list[bool] = []
+    found: list[re.Match] = []
+    for match in _TAG.finditer(xml):
+        closing, name, attrs, empty = match.groups()
+        if name is None:
+            continue
+        if name == "suspend" and not closing:
+            if not any(unsafe):
+                found.append(match)
+            continue
+        if name not in {"block", "loop"} or empty:
+            continue
+        if closing:
+            if unsafe:
+                unsafe.pop()
+            continue
+        cond = _COND.search(attrs or "")
+        unsafe.append(name == "loop" or bool(cond and cond.group(2).strip() not in {"", "1"}))
+    return found
+
+
+_OWN_STYLE = re.compile(
+    r"\n?[ \t]*<!-- Quant OS live quality tracking: survey id [^\n]*?-->\s*"
+    r'<style (?:mode="after" )?name="respview\.client\.js"><!\[CDATA\[.*?\]\]></style>',
+    re.S,
+)
+_OWN_PRIVACY = re.compile(r'\n?[ \t]*<html label="QOS_privacy" where="survey">[^<]*</html>')
+_OWN_FINISH = re.compile(r'[ \t]*<html label="QOS_finish">[^<]*</html>\n?')
+_OWN_FIELD = re.compile(
+    r'[ \t]*<text label="QOS_(?:RESPONDENT|SESSION|FLAG|SCORE|RISK)" optional="1" size="40">\n'
+    r'[ \t]*<title><span class="qos-bot-field" data-field="\w+"></span>[^<]*</title>\n'
+    r"[ \t]*</text>\n?"
+)
+
+
+def has_tracking(xml: str) -> bool:
+    """Whether the XML already carries Quant OS tracking.
+
+    Args:
+        xml: Survey XML.
+
+    Returns:
+        True when the tracker or its hidden results page is present.
+    """
+    return "Quant OS live quality tracking" in xml or 'label="QOS_SESSION"' in xml
+
+
+def remove_tracking(xml: str) -> str:
+    """Remove Quant OS tracking so it can be added again with current settings.
+
+    Only the pieces :func:`add_tracking` writes are removed; everything else in the
+    survey stays exactly as it was.
+
+    Args:
+        xml: Survey XML.
+
+    Returns:
+        Survey XML without Quant OS tracking.
+    """
+    xml = xml.replace(_EARLY_QUESTION + "    ", "").replace(_EARLY_TERM, "")
+    for pattern in (_OWN_STYLE, _OWN_PRIVACY, _OWN_FINISH, _OWN_FIELD):
+        xml = pattern.sub("", xml)
+    return xml
 
 
 def survey_token(survey_id: str, secret: str) -> str:

@@ -40,20 +40,49 @@ def test_upload_stores_the_path_and_reuses_it(tmp_path, monkeypatch: pytest.Monk
     ) as client:
         project = create_project(client)
         _save_questionnaire(client, project["id"])
-        first = client.post(f"/api/projects/{project['id']}/questionnaires/decipher")
+        first = _program_and_upload(client, project["id"])
         assert first.status_code == 200, first.text
         survey = _decipher_content(client, project["id"])
         assert survey["launch"] == "uploaded"
         assert survey["survey_path"] == "selfserve/9/100"
         assert survey["survey_url"] == "https://selfserve.decipherinc.com/survey/selfserve/9/100"
         assert _API_KEY not in json.dumps(survey)
-        second = client.post(f"/api/projects/{project['id']}/questionnaires/decipher")
+        second = _program_and_upload(client, project["id"])
         assert second.status_code == 200, second.text
     assert calls == [
         "POST /api/v1/rh/companies/self/surveys",
         "PUT /api/v1/surveys/selfserve/9/100/files/survey.xml",
         "PUT /api/v1/surveys/selfserve/9/100/files/survey.xml",
     ]
+
+
+def _program_and_upload(client, project_id: str):
+    """Prepare the XML (no upload), then confirm the upload."""
+    prepared = client.post(f"/api/projects/{project_id}/questionnaires/decipher")
+    assert prepared.status_code == 200, prepared.text
+    assert _decipher_content(client, project_id)["launch"] == "awaiting_confirmation"
+    return client.post(f"/api/projects/{project_id}/decipher/upload")
+
+
+def test_programming_waits_for_confirmation(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Programming saves the XML and says what an upload would do; nothing reaches Decipher."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method)
+        return httpx.Response(500)
+
+    _patch_transport(monkeypatch, handler)
+    with TestClient(
+        create_app(_settings(tmp_path, decipher_api_key=_API_KEY, decipher_api_base=_BASE))
+    ) as client:
+        project = create_project(client)
+        _save_questionnaire(client, project["id"])
+        prepared = client.post(f"/api/projects/{project['id']}/questionnaires/decipher")
+        assert prepared.status_code == 200, prepared.text
+        assert "creates a new Decipher survey" in prepared.json()["summary"]
+        assert _decipher_content(client, project["id"])["launch"] == "awaiting_confirmation"
+    assert calls == []
 
 
 def test_rejected_xml_is_still_saved(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,7 +109,7 @@ def test_rejected_xml_is_still_saved(tmp_path, monkeypatch: pytest.MonkeyPatch) 
     ) as client:
         project = create_project(client)
         _save_questionnaire(client, project["id"])
-        programmed = client.post(f"/api/projects/{project['id']}/questionnaires/decipher")
+        programmed = _program_and_upload(client, project["id"])
         assert programmed.status_code == 200, programmed.text
         assert programmed.json()["status"] == "completed_with_warnings"
         survey = _decipher_content(client, project["id"])
@@ -134,7 +163,7 @@ def test_structure_errors_are_corrected_and_uploaded(
     ) as client:
         project = create_project(client)
         _save_questionnaire(client, project["id"])
-        programmed = client.post(f"/api/projects/{project['id']}/questionnaires/decipher")
+        programmed = _program_and_upload(client, project["id"])
         assert programmed.status_code == 200, programmed.text
         assert "Corrected" in programmed.json()["summary"]
         survey = _decipher_content(client, project["id"])

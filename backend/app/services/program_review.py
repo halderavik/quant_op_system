@@ -266,6 +266,7 @@ async def _run(settings: Settings, prompt: str, session_id: str) -> ReviewBatch:
                 output_type=ReviewBatch,
                 role="validator",
                 session_id=f"{session_id}-review-{uuid.uuid4().hex[:8]}",
+                cache=True,
             ),
             timeout=CALL_SECONDS,
         )

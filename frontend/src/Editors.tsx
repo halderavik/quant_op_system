@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Artifact } from "./api";
 import { Code2, Download as DownloadIcon, Eye } from "lucide-react";
-import { downloadUrl, exportTabspec, previewSource, programDecipher, saveDownload, saveRevision, type SavedRevision } from "./api";
+import { downloadUrl, exportTabspec, previewSource, programDecipher, saveDownload, uploadDecipher, saveRevision, type SavedRevision } from "./api";
 import { FeedbackBar } from "./editors/FeedbackBar";
 import { ReportPlanEditor, ReportViewer } from "./editors/ReportPlanEditor";
 import { ArtifactIcon, runDownload } from "./OutputsPanel";
@@ -238,7 +238,15 @@ export function ArtifactEditor({
             }}
           />
         )}
-        {artifact.type === "decipher_survey" && <DecipherViewer content={draft} onPreview={openStoredPreview} />}
+        {artifact.type === "decipher_survey" && <DecipherViewer
+            content={draft}
+            onPreview={openStoredPreview}
+            onUpload={async () => {
+              const result = await uploadDecipher(projectId);
+              setMessage(result.summary);
+              await onProgrammed(result.artifact_id);
+            }}
+          />}
         {artifact.type === "sample_purchase" && (
           <SamplePurchaseViewer content={draft} projectId={projectId} onChanged={onProgrammed} />
         )}

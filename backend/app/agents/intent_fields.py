@@ -26,6 +26,7 @@ _META: dict[str, tuple[str, list[str]]] = {
     "run_report": ("report", ["report", "pptx"]),
     "clean_data": ("cleaning", ["cleaning", "xlsx"]),
     "apply_cleaning": ("cleaning", ["dataset"]),
+    "build_weight": ("weighting", ["weighting", "dataset"]),
     "run_saved_tabspec": ("crosstab", ["crosstab", "xlsx"]),
     "build_tabspec": ("tabspec", ["tabspec", "xlsx"]),
     "run_crosstab": ("crosstab", ["crosstab", "xlsx"]),

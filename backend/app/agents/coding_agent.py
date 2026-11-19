@@ -23,6 +23,31 @@ class CodingBatch(BaseModel):
     assignments: list[CodingAssignment] = Field(default_factory=list)
 
 
+def codeframe_text(codeframe: Codeframe) -> str:
+    """List each code id with its label and definition, so the model knows what it means.
+
+    Ids such as "1" or "4" say nothing on their own; the label is what the model codes to.
+
+    Args:
+        codeframe: Approved codeframe.
+
+    Returns:
+        One line per code: id, label, definition, and any examples.
+    """
+    lines = ["Codeframe (id: label, definition):"]
+    for code in codeframe.codes:
+        line = f"{code.id}: {code.label}"
+        if code.definition:
+            line += f" - {code.definition}"
+        if code.include_examples:
+            line += f" (for example: {'; '.join(code.include_examples[:3])})"
+        if code.exclude_examples:
+            line += f" (not: {'; '.join(code.exclude_examples[:3])})"
+        lines.append(line)
+    lines.append("Use only these ids in assigned_code_ids.")
+    return "\n".join(lines)
+
+
 async def code_batch(
     settings: Settings,
     codeframe: Codeframe,
@@ -46,7 +71,7 @@ async def code_batch(
         settings,
         name="Open-end coding specialist",
         instructions=_INSTRUCTIONS,
-        prompt=prompt + "\n\nCodeframe ids: " + ", ".join(code.id for code in codeframe.codes),
+        prompt=prompt + "\n\n" + codeframe_text(codeframe),
         output_type=CodingBatch,
         role="coding",
         session_id=session_id,

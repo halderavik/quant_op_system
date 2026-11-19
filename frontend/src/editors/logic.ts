@@ -25,7 +25,7 @@ export type QuestionLite = {
   programming?: Record<string, unknown> | null;
 };
 
-type DerivedLite = { id: string; label?: string; values?: { code: string | number; label: string; when?: Expr | null; terminate?: boolean }[] };
+type DerivedLite = { id: string; label?: string; compute?: { kind: string; sources?: string[]; rows?: (string | number)[] } | null; values?: { code: string | number; label: string; when?: Expr | null; terminate?: boolean }[] };
 
 export type Catalog = Record<string, { options: OptionLite[]; rows: string[]; type?: string }>;
 
@@ -39,7 +39,7 @@ export function buildCatalog(questions: QuestionLite[], derived: DerivedLite[]):
     if (q.id) catalog[q.id] = { options: q.options ?? [], rows: q.matrix_items ?? [], type: q.type };
   }
   for (const d of derived) {
-    catalog[d.id] = { options: (d.values ?? []).map((v) => ({ code: v.code, label: v.label })), rows: [], type: "derived" };
+    catalog[d.id] = { options: (d.values ?? []).map((v) => ({ code: v.code, label: v.label })), rows: [], type: d.compute ? "numeric" : "derived" };
   }
   return catalog;
 }
@@ -119,6 +119,7 @@ export function logicLines(question: QuestionLite, catalog: Catalog): LogicLine[
   if (question.randomize_options) order.push("randomized");
   if (spec.randomize_columns) order.push("columns randomized");
   if (spec.same_order_as) order.push(`same order as ${spec.same_order_as}`);
+  if (spec.sort_alphabetically) order.push("alphabetical");
   if ((spec.keep_together ?? []).length) order.push(`kept together: ${(spec.keep_together as unknown[][]).map((g) => g.join("+")).join(", ")}`);
   const anchored = (question.options ?? []).filter((o) => o.anchor).map((o) => o.code);
   if (anchored.length) order.push(`anchored: ${codesText(question, anchored)}`);
@@ -136,6 +137,7 @@ export function logicLines(question: QuestionLite, catalog: Catalog): LogicLine[
   for (const rule of spec.terminate_rules ?? []) terminates.push(`if ${describeExpr(rule.when, catalog)} (${flagged(rule.immediately)})`);
   if (terminates.length) lines.push({ label: "Terminate", text: terminates.join("; ") });
   if (spec.autofill) lines.push({ label: "Autopunch", text: `${codesText(question, [spec.autofill.code])}${spec.autofill.when ? ` when ${describeExpr(spec.autofill.when, catalog)}` : ""}` });
+  if ((spec.images ?? []).length) lines.push({ label: "Images", text: (spec.images as string[]).join("; ") });
   for (const pipe of spec.pipes ?? []) lines.push({ label: "Piping", text: `${pipe.placeholder} shows the answer to ${pipe.source}` });
   for (const check of spec.validations ?? []) lines.push({ label: "Check", text: `error "${check.message}" when ${describeExpr(check.error_when, catalog)}` });
   if ((spec.confirm_codes ?? []).length) lines.push({ label: "Ask again", text: `once for ${codesText(question, spec.confirm_codes)}: "${spec.confirm_message ?? ""}"` });
@@ -145,6 +147,11 @@ export function logicLines(question: QuestionLite, catalog: Catalog): LogicLine[
 }
 
 export function derivedLines(variable: DerivedLite, catalog: Catalog): LogicLine[] {
+  if (variable.compute) {
+    const sources = (variable.compute.sources ?? []).join(" + ") || "?";
+    const rows = (variable.compute.rows ?? []).length ? ` (rows ${(variable.compute.rows ?? []).join(", ")})` : "";
+    return [{ label: "Computed", text: variable.compute.kind === "midpoint" ? `midpoint of the range chosen at ${sources}` : `sum of ${sources}${rows}` }];
+  }
   return (variable.values ?? []).map((value) => ({
     label: `${value.code} ${value.label}`,
     text: (value.when ? `when ${describeExpr(value.when, catalog)}` : "assigned by the programmer") + (value.terminate ? " - terminates" : ""),
