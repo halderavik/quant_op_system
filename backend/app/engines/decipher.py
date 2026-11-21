@@ -149,8 +149,15 @@ def _build(document: Questionnaire) -> tuple[str, list[CoverageItem], list[str],
             derived_after.setdefault(
                 variable.after if variable.after in labels else None, []
             ).append(variable)
-    for variable in derived_after.pop(None, []):
-        items.append(emit_derived(survey, variable, build))
+
+    def emit_variables(target: ET.Element, after: str | None) -> None:
+        # Reason: a variable can be computed after another derived variable
+        # (a brand label after the brand assignment); emit those right behind it.
+        for variable in derived_after.pop(after, []):
+            items.append(emit_derived(target, variable, build))
+            emit_variables(target, variable.id)
+
+    emit_variables(survey, None)
     rotation_of = _rotation_places(document, build)
     rotation: tuple[int, ET.Element] | None = None
     section: tuple[int, ET.Element] | None = None
@@ -190,8 +197,7 @@ def _build(document: Questionnaire) -> tuple[str, list[CoverageItem], list[str],
             target = section[1]
         items.append(emit_question(target, question, build))
         add_element(target, "suspend")
-        for variable in derived_after.pop(question.id, []):
-            items.append(emit_derived(target, variable, build))
+        emit_variables(target, question.id)
         if question.id == document.terminate_after and build.deferred_terms:
             parent.append(
                 ET.Comment(" Screen-outs flagged during the screener end the interview here. ")
@@ -199,6 +205,10 @@ def _build(document: Questionnaire) -> tuple[str, list[CoverageItem], list[str],
             for label, condition, description in build.deferred_terms:
                 add_element(parent, "term", description, label=label, cond=condition)
             build.deferred_terms.clear()
+    # Reason: whatever is left waits on something never emitted (a loop of "after"s);
+    # put it at the end rather than lose it.
+    for after in list(derived_after):
+        emit_variables(survey, after)
     for variable in document.derived_variables:
         if not variable.values and not variable.compute:
             survey.append(
@@ -319,7 +329,7 @@ def emit_derived(parent: ET.Element, variable: DerivedVariable, build: SurveyBui
 def _emit_computed(
     parent: ET.Element, variable: DerivedVariable, build: SurveyBuild
 ) -> CoverageItem:
-    """Program a computed number (a total or a range midpoint) as a hidden question.
+    """Program a computed number (a total, a count, or a range midpoint) as a hidden question.
 
     Args:
         parent: Survey or block.
@@ -350,6 +360,30 @@ def _emit_computed(
                 terms.extend(f"({label}.{row}.val or 0)" for row in wanted)
             else:
                 terms.append(f"({label}.val or 0)")
+        if terms:
+            code = f"{name}.val = " + " + ".join(terms)
+    elif compute.kind == "count":
+        terms = []
+        for source in compute.sources:
+            question = build.questions.get(source)
+            label = build.labels.get(source)
+            if question is None or label is None:
+                todos.append(f"{source} is not a question in this survey")
+                continue
+            rows = build.rows.get(source, {})
+            wanted = [rows[str(row)] for row in compute.rows if str(row) in rows] or list(
+                rows.values()
+            )
+            if question.type in {"numeric", "allocation"}:
+                terms.extend(f"(1 if ({label}.{row}.val or 0) > 0 else 0)" for row in wanted)
+            elif question.type == "multi_select" and wanted:
+                terms.extend(f"(1 if {label}.{row} else 0)" for row in wanted)
+            elif question.type == "single_select" and wanted:
+                terms.append(
+                    "(1 if (" + " or ".join(f"{label}.{row}" for row in wanted) + ") else 0)"
+                )
+            else:
+                todos.append(f"cannot count the answers of {source} ({question.type})")
         if terms:
             code = f"{name}.val = " + " + ".join(terms)
     else:

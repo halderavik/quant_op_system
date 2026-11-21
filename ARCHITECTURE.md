@@ -273,6 +273,33 @@ flowchart TB
     deck -- "Save or post (approval)" --> team["Drive, Slack, SharePoint"]
 ```
 
+### Study tools and the logic test
+
+The **Study tools** workspace tab holds three tools. The Decipher viewer has a fourth, the **Logic test** tab.
+
+- **Logic test** (`engines/logic_qa.py`, `POST /projects/{id}/decipher/qa`):
+  - Simulated respondents (400 by default) take the stored survey XML the way Decipher would: its `cond` attributes, gotos and `term` elements decide the path.
+  - The same answers are then read against the questionnaire's own logic: bases, option and rule terminates (immediate, or held to the end of the screener), and derived groups marked TERMINATE. That logic is evaluated independently of the XML compiler.
+  - The first disagreement for each respondent is reported with the answers that caused it. Kinds: the XML skips or shows a question wrongly, a terminate is missing, or an extra terminate fires.
+  - Derived variables are worked out from their definitions and given to both sides; the XML's exec code is not run. Select-all grids are not simulated cell by cell, so logic that uses them is listed as not checked.
+  - Nothing is sent to Decipher.
+- **Tracking** (`services/tracking.py`, `/projects/{id}/tracking…`):
+  - A wave is a project. `study_context.tracking` links it into a series (`series`, `wave`, `label`, `previous_project_id`).
+  - **Next wave** copies the questionnaire (with its planned logic), tab spec, weighting setup and report plan. It does not copy data, XML or outputs.
+  - **Wave changes** compares the two questionnaires question by question and marks what breaks trend comparability: type, wording below 85% similar, added, removed or reworded answers, grid rows, and the base.
+  - **Trend tables** read every wave's active dataset and test each wave against the one before it at 95%: an unpooled z-test for percentages and a Welch t-test for means. They use the effective base when a wave has a project weight.
+- **Languages** (`services/translation.py`, `/projects/{id}/translations…`):
+  - One `translation` artifact per language holds keyed segments of what respondents see: the title, wording, instructions, answers and grid rows. Programmer notes stay in the source language.
+  - The model translates missing segments, and segments whose source text changed; brand names, codes, placeholders and HTML are kept as written. A reviewer can edit any segment.
+  - Sign-off needs every segment translated against the current questionnaire. A later questionnaire change moves the language to "needs review".
+  - Each language exports to Word or PDF, or builds as its own survey XML, which is not uploaded. One Decipher survey holding several languages is not generated.
+- **Segments** (`engines/segmentation.py`, `services/segmentation_run.py`, `/projects/{id}/segmentation…`):
+  - K-means runs on standardized variables for each segment count in a range. Each solution is scored on silhouette, Calinski-Harabasz, stability, and smallest segment share. Stability is the adjusted Rand agreement with a solution fitted on a different 80% of the sample and a different seed.
+  - The recommended solution is the best-separated one with segments of at least 5% and stability of at least 0.6.
+  - Profiles show each segment's three most distinctive variables. Segment names start from those variables and are editable.
+  - The typing tool is a multinomial logistic regression on the fewest variables whose holdout accuracy is within five points of using all of them. It downloads as an Excel scorer built from formulas.
+  - **Add segments to the data** saves `SEG_<k>` with value labels as a new dataset version.
+
 ---
 
 ## 6. Data model
@@ -395,9 +422,54 @@ sequenceDiagram
     Note over Q,D: A live survey is never replaced. Uploaded XML always creates a new test survey.
 ```
 
+Some programming conventions are applied in code, not left to the planner:
+
+- **House rules** (`services/special_options.py`) run after every planning pass:
+  - On select-all questions, None, Don't know, Not sure and Prefer not to answer are exclusive and anchored.
+  - Write-in answers ("specify", "self-describe", "____") get a text box.
+  - Other (specify) is not exclusive unless the question's notes say it is.
+- **Piped rows** (`row_condition`) are matched to the source question's rows by wording, ignoring case, punctuation and small differences. `rowCond="Q1[row]"` therefore lines up even when the two lists use different codes.
+  - A piped row the source doesn't have is reported as a warning.
+  - When the source is a select-all, the question also gets `Q1.any` as its base.
+- **"Not" bases on a select-all** ("ask if Q5 ≠ 99") are written as `(Q5.any and not Q5.r99)`, so respondents who never saw Q5 are not included.
+- **Anchored rows** keep `randomize="0"` both when rows shuffle and when they are sorted A–Z.
+- **Copied lists:**
+  - A question whose own answers are only None, Don't know or Other gets the source list first, followed by its own answers.
+  - The source comes from the plan, or from a note such as "[Same list as X]", "[PIPE IN … from X]" or "[SHOW X LIST]".
+  - When the source is a grid, its rows are copied, numbered by position.
+- **Scale columns:** a Don't know or N/A point coded apart from the scale (97, 98, or 9 after a 5-point scale) is labelled by its code (`c97`), and only the scale points are numbered.
+- **Grids with repeated codes** (either/or pairs coded 1, 2 each) get position-numbered columns and a warning, so the XML stays valid.
+- **Derived variables:**
+  - A variable computed after another derived variable is emitted right behind it.
+  - A variable whose conditions fail the logic check keeps its codes; only the conditions become a to-do.
+  - A **count** variable (`compute.kind = "count"`) counts the answers chosen across its source questions, or the number rows above zero. A base such as "ask if 2 or more routes" then compares it with `>= 2`.
+  - When a fix needs a variable the questionnaire only describes in words, the planner may define it during a fix round (`merge_derived`). A fix never replaces a variable that already has values.
+
+The review loop (`services/program_review.py`) keeps fixing the XML until it carries out every instruction it can:
+
+1. Round 1 reviews every question. Each round also adds problems found without the reviewer: logic `settle()` set aside as a to-do (an unknown variable, a code the list lacks) and questions that make the XML fail its check.
+2. Only the questions with findings are planned again, and the XML is rebuilt.
+3. Later rounds re-review only the questions that changed. Findings on questions that didn't change are carried forward without another review.
+4. The loop stops when nothing is left, when no question changed, or after 5 rounds. A question that comes back unchanged twice is not retried.
+5. Whatever is still open becomes a `PROGRAMMER TODO` in the XML and a warning.
+
+The Decipher survey viewer has three tabs: **Overview**, **To-dos** and **Compare XML**.
+
+- **To-dos** (`services/programmer_todos.py`, `GET|POST /projects/{id}/decipher/todos[/mark|/fix]`):
+  - The list is every `unresolved` line on a question or derived variable. Its id is a hash of the owner and the text.
+  - **Mark done** moves a to-do to `done_todos`, so it leaves the XML comments. **Reopen** moves it back.
+  - **Fix with AI** plans the chosen questions again with their to-dos as problems, then has the reviewer check those questions. Whatever is still found stays a to-do, and to-dos that weren't chosen are kept. The chosen to-dos are saved in `programming.requested` and shown to the reviewer as "requested by the person", so from then on they count as instructions rather than as going beyond the questionnaire.
+  - Each action saves a new questionnaire version and rebuilds the XML without uploading. XML programmed elsewhere and uploaded here is never replaced.
+- **Compare XML** (`services/xml_compare.py`, `POST /projects/{id}/decipher/compare`):
+  - Lines up each question of the generated XML with a pasted or chosen reference XML, using the benchmark's `compare_questionnaire` checks.
+  - Shows both XMLs as written, side by side, with a line diff.
+  - The reference is used for that one comparison and is never stored.
+
 ### Live quality (bot and fraud detection)
 
 When **Add tracking** is on, programming injects `assets/live_quality_tracker.js` into the survey XML with a signed survey token. Respondents' browsers send behaviour events (keystrokes, mouse, focus, page timing, grid answers, open-end text) to the bot-detection API. Quant OS reads that API's verdicts, applies the project's quality rules, and shows the **Live quality** tab and dashboard. The tracker never blocks the survey; ending the survey on a clear bot signal is an opt-in rule.
+
+When the Decipher export is uploaded, `services/quality_merge.py` joins each record's `QOS_SESSION` (falling back to `QOS_RESPONDENT`) to the Live quality rows and writes the verdict, scores and one 0/1 variable per flag as `LQ_*` columns in the same dataset. **Refresh flags** (`POST /projects/{id}/live-quality/merge`) re-applies the current rules as a new dataset version. An unreachable service never fails the upload.
 
 ### Prolific
 
@@ -456,6 +528,9 @@ Configuration lives in `backend/.env` (copy `.env.example`). Only `OPENAI_API_KE
 - **Complex survey designs:** stratified or clustered standard errors are out of scope; weighted tests use the effective base.
 - **MaxDiff and conjoint** raise `unsupported_method` rather than being approximated.
 - **Decipher loops and quotas** are left as programmer to-dos.
+- **Logic test:** it simulates the XML locally rather than driving Decipher's own test link, doesn't run exec code, and doesn't simulate select-all grids cell by cell.
+- **Languages:** each language builds as its own survey XML; a single Decipher survey holding several languages is not generated.
+- **Segmentation** is K-means on complete cases, unweighted.
 - **Sandbox fallback:** without Docker, generated scripts run in a labelled subprocess, which is not a secure sandbox.
 - **External workbooks:** detection maps a small set of headers and blocks ambiguous significance columns; it doesn't parse every vendor layout.
 - **Single user:** the app is local; there is no authentication or multi-user locking beyond `expected_version`.

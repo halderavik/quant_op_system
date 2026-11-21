@@ -8,7 +8,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.services import live_quality, quality_rules
+from app.errors import AppError
+from app.services import live_quality, quality_merge, quality_rules
 from app.services.quality_rules import QualityRules
 
 router = APIRouter()
@@ -38,6 +39,7 @@ def _state(request: Request, db: Session, project_id: str) -> dict[str, Any]:
         **tracking,
         "decipher": live_quality.decipher_status(db, project_id, tracking["survey_id"]),
         "api_base": settings.bot_detection_api_base,
+        "data": quality_merge.merge_state(db, request.app.state.storage, project_id),
     }
 
 
@@ -125,6 +127,42 @@ async def get_live_results(
         return live_quality.summarize("", {}, {"respondents": []})
     rules = quality_rules.get_rules(db, project_id)
     return await live_quality.live_results(request.app.state.settings, tracking["survey_id"], rules)
+
+
+@router.post("/projects/{project_id}/live-quality/merge")
+async def merge_live_results(project_id: str, request: Request, db: Session = Depends(get_db)) -> dict:
+    """Add (or refresh) the Live quality flags in the active dataset as LQ_ variables.
+
+    Saves a new dataset version, so earlier tables keep the data they were run on.
+
+    Args:
+        project_id: Project id.
+        request: Current request.
+        db: Session.
+
+    Returns:
+        The merge report and the refreshed live-quality state.
+
+    Raises:
+        AppError: No dataset, or the data has no QOS session ids.
+    """
+    from app.repositories.records import DatasetRepository, ProjectRepository
+
+    project = ProjectRepository(db).get(project_id)
+    if not project.active_dataset_id:
+        raise AppError("Upload the survey data first.", "missing_dataset")
+    dataset = DatasetRepository(db).get(project.active_dataset_id)
+    report = await quality_merge.merge_into_dataset(
+        db, request.app.state.storage, request.app.state.settings, project_id, dataset, new_version=True
+    )
+    if report["status"] == "no_tracking":
+        raise AppError(
+            "This data has no QOS_SESSION or QOS_RESPONDENT ids. Upload the Decipher export "
+            "of a survey programmed with tracking.",
+            "no_tracking",
+        )
+    db.commit()
+    return {"report": report, "state": _state(request, db, project_id)}
 
 
 @router.get("/live-quality/surveys")

@@ -18,6 +18,10 @@ from app.api.routes_learning import router as learning_router
 from app.api.routes_library import router as library_router
 from app.api.routes_live_quality import router as live_quality_router
 from app.api.routes_sample import router as sample_router
+from app.api.routes_segmentation import router as segmentation_router
+from app.api.routes_todos import router as todos_router
+from app.api.routes_tracking import router as tracking_router
+from app.api.routes_translation import router as translation_router
 from app.api.routes_weighting import router as weighting_router
 from app.errors import AppError
 from app.models.tables import Task
@@ -35,6 +39,10 @@ router.include_router(jobs_router)
 router.include_router(learning_router)
 router.include_router(connectors_router)
 router.include_router(live_quality_router)
+router.include_router(todos_router)
+router.include_router(tracking_router)
+router.include_router(translation_router)
+router.include_router(segmentation_router)
 router.include_router(weighting_router)
 
 

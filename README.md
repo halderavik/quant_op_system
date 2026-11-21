@@ -90,6 +90,13 @@ The file is refused, with the reason, when it:
   - By default a hidden check runs when page 2 is submitted. Respondents with an enabled decisive signal go to a Decipher termination (`QOS_EARLY`, `QOS_bot_term`). A score on its own never ends a survey.
   - A short privacy notice opens the first page.
 
+**Flags in the data.** When you upload the Decipher data file (.sav) of a tracked survey, Quant OS matches each record's `QOS_SESSION` (or `QOS_RESPONDENT`) to its Live quality result and adds the scores and flags as `LQ_` variables, under the project's quality rules:
+- `LQ_MATCHED`, `LQ_STATUS`, `LQ_VERDICT`, `LQ_BOT_SCORE`, `LQ_BOT_RISK`, `LQ_BOT_SIGNALS`;
+- `LQ_SECONDS`, `LQ_PAGES`, `LQ_SEC_PER_PAGE`, `LQ_TEXT_QUALITY`, `LQ_FRAUD_SCORE`, `LQ_FRAUD_RISK`;
+- one 0/1 variable per flag (`LQ_F_BOT`, `LQ_F_TEXT`, `LQ_F_PASTED`, `LQ_F_STRAIGHT`, `LQ_F_SPEEDER`, `LQ_F_FLATLINE`, `LQ_F_DUPLICATE`, `LQ_F_FRAUD`, `LQ_F_DATACENTRE`), plus `LQ_NFLAGS` and `LQ_FLAGS`.
+
+If the bot-detection service can't be reached, the upload still succeeds and says no flags were added. **Flags in your data** in the Live quality tab adds them later, or refreshes them after a rules change; a refresh saves a new dataset version. `demo/BrewCo_live_quality_sample.sav` is a simulated example with humans, bots and fraudulent respondents.
+
 To sign trackers so nobody can add fake sessions under a survey's name, set `BOT_DETECTION_TOKEN_SECRET` to the same value as the service's `TRACKING_TOKEN_SECRET`. Without it, surveys are not signed.
 
 Linux uses the same commands in a shell that allows `&&` if you prefer one line, but each command above also works alone.

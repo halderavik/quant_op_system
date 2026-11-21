@@ -121,13 +121,14 @@ def _question_element(
                 "positive": f"{source}[row].ival gt 0",
             }[spec.row_condition.mode]
         )
+        _check_piped_rows(question, build)
     _autofill(parent, tag, question, build)
     node = add_element(
         parent,
         tag,
         label=build.labels[question.id],
         optional="0" if question.required else "1",
-        cond="0" if spec.hidden else _condition(question, build),
+        cond="0" if spec.hidden else _with_piped_base(_condition(question, build), question, build),
         shuffle=",".join(shuffle) or None,
         shuffleBy=shuffle_by,
         sortRows="asc,survey" if spec.sort_alphabetically else None,
@@ -341,10 +342,9 @@ def _option_rows(
             attrs["open"] = "1"
             attrs["openSize"] = "25"
         # Reason: a question can shuffle because it follows another's order, so the
-        # element's own shuffle decides whether anchored rows must stay put.
-        if "rows" in (node.get("shuffle") or "") and (
-            option.anchor or option.open_text or _exclusive(option, question)
-        ):
+        # element's own shuffle (or A-Z sort) decides whether anchored rows must stay put.
+        reordered = "rows" in (node.get("shuffle") or "") or bool(node.get("sortRows"))
+        if reordered and (option.anchor or option.open_text or _exclusive(option, question)):
             attrs["randomize"] = "0"
         add_element(node, "row", option.label, label=row_label, **attrs)
         punches.append(Punch(code=str(option.code), label=option.label, row_label=row_label))
@@ -489,6 +489,56 @@ def _condition(question: Question, build: SurveyBuild) -> str | None:
         build.cols,
         build.issues,
     )
+
+
+def _check_piped_rows(question: Question, build: SurveyBuild) -> None:
+    """Warn about piped rows the source question does not have; rowCond cannot show them."""
+    piped = spec_of(question).row_condition
+    if piped is None or piped.column is not None:
+        return
+    source_rows = set(build.rows.get(piped.source, {}).values())
+    if not source_rows:
+        return
+    own = build.rows.get(question.id, {})
+    if question.type in {"grid", "matrix"}:
+        named = [(own.get(str(i)), item) for i, item in enumerate(question.matrix_items, start=1)]
+    else:
+        named = [(own.get(str(o.code)), o.label) for o in question.options]
+    missing = [text for label, text in named if label and label not in source_rows]
+    if missing:
+        listed = "; ".join(f'"{text[:40]}"' for text in missing[:5])
+        more = f" and {len(missing) - 5} more" if len(missing) > 5 else ""
+        _warn(
+            build,
+            f"{question.id} shows rows picked at {piped.source}, but {piped.source} has no row "
+            f"worded like {listed}{more}. Check the wording or the rowCond for these rows.",
+        )
+
+
+def _with_piped_base(cond: str | None, question: Question, build: SurveyBuild) -> str | None:
+    """Add "something was selected at the source" to a question whose rows are piped from it.
+
+    "ONLY SHOW BRANDS AWARE OF AT Q5" is also the question's base: with nothing chosen
+    at Q5 there is nothing to ask. Programmers write ``Q5.any`` on the question so the
+    base is explicit in the XML and in the data map.
+    """
+    piped = spec_of(question).row_condition
+    source = build.questions.get(piped.source) if piped else None
+    if (
+        piped is None
+        or source is None
+        or piped.mode != "selected"
+        or piped.column is not None
+        or source.type != "multi_select"
+        or piped.source not in build.labels
+    ):
+        return cond
+    base = f"{build.labels[piped.source]}.any"
+    if not cond:
+        return base
+    if base in cond:
+        return cond
+    return f"({cond}) and {base}"
 
 
 def _item(

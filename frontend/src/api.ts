@@ -121,7 +121,7 @@ export async function saveRevision(
 export async function uploadFile(projectId: string, file: File) {
   const data = new FormData();
   data.append("file", file);
-  return parse<{ file_id: string; dataset_id?: string | null }>(
+  return parse<{ file_id: string; dataset_id?: string | null; live_quality?: { status: string; message: string } | null }>(
     await fetch(`/api/projects/${projectId}/files`, { method: "POST", body: data }),
   );
 }
@@ -367,7 +367,28 @@ export type LiveQualityState = {
     file_id?: string | null;
     awaiting_upload?: boolean;
   };
+  /** Whether the active dataset carries QOS ids, already has LQ_ variables, and the last merge. */
+  data?: { tracked: boolean; merged: boolean; last?: QualityMergeReport | null };
 };
+
+/** What joining Live quality results to the survey data added. */
+export type QualityMergeReport = {
+  status: string;
+  message: string;
+  records?: number;
+  tracked?: number;
+  matched?: number;
+  unmatched?: number;
+  flagged?: number;
+  bots?: number;
+  merged_at?: string;
+  variables?: string[];
+};
+
+/** Add or refresh the Live quality flags in the active dataset (saved as a new version). */
+export async function mergeLiveQuality(projectId: string): Promise<{ report: QualityMergeReport; state: LiveQualityState }> {
+  return parse(await fetch(`/api/projects/${projectId}/live-quality/merge`, { method: "POST" }));
+}
 
 export type LiveTextDetail = { question?: string | null; answer?: string | null; quality?: number | null; flagged: boolean; reasons: string[] };
 
@@ -692,4 +713,83 @@ export async function setWeightingUse(projectId: string, enabled: boolean): Prom
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
   }));
+}
+
+export type ProgrammerTodo = {
+  id: string;
+  owner: string;
+  owner_kind: "question" | "derived";
+  title: string;
+  text: string;
+  source: "review" | "planner";
+  done: boolean;
+  fixable: boolean;
+};
+
+export type TodoList = {
+  todos: ProgrammerTodo[];
+  open: number;
+  done: number;
+  questionnaire_version: number | null;
+  xml_stale: boolean;
+  summary?: string;
+  artifact_id?: string | null;
+  fixed?: number;
+  remaining?: number;
+};
+
+export async function listTodos(projectId: string): Promise<TodoList> {
+  return parse(await fetch(`/api/projects/${projectId}/decipher/todos`));
+}
+
+export async function markTodos(projectId: string, ids: string[], done: boolean): Promise<TodoList> {
+  return parse(
+    await fetch(`/api/projects/${projectId}/decipher/todos/mark`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, done }),
+    }),
+  );
+}
+
+export async function fixTodos(projectId: string, ids: string[]): Promise<TodoList> {
+  return parse(
+    await fetch(`/api/projects/${projectId}/decipher/todos/fix`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    }),
+  );
+}
+
+export type XmlCheck = { area: string; check: string; passed: boolean; detail: string; item: string };
+
+export type XmlCompareRow = {
+  key: string;
+  label: string;
+  status: "match" | "differs" | "missing" | "extra";
+  passed: number;
+  total: number;
+  generated_xml: string;
+  reference_xml: string;
+  checks: XmlCheck[];
+};
+
+export type XmlComparison = {
+  match: number | null;
+  areas: Record<string, { passed: number; total: number }>;
+  questions: XmlCompareRow[];
+  other_checks: XmlCheck[];
+  not_scored: Record<string, string[]>;
+  generated_version: number | null;
+};
+
+export async function compareXml(projectId: string, xml: string): Promise<XmlComparison> {
+  return parse(
+    await fetch(`/api/projects/${projectId}/decipher/compare`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ xml }),
+    }),
+  );
 }

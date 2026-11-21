@@ -2,13 +2,25 @@
 
 **Story for the audience:** one workspace takes a study from a client brief to a client-ready PowerPoint. Specialist agents do each job, every number is computed rather than written by a model, and the researcher can edit at every step.
 
-**Running time:** about 74 minutes plus Q&A. Data cleaning (Act 4) is a 30-second mention, because synthetic data skips it. If you need to cut:
-- drop Act 8b (connectors, 3 min) first, then Act 1b (Word import, 5 min), then Act 5b (weighting, 6 min);
-- the core path is the opening plus Acts 1, 2, 3, 3b, 5, 6 and 8, about 51 minutes. Keep Act 3b in: it's the one part the audience takes part in.
+**Running time:** about 81 minutes plus Q&A, or about 90 with the optional Act 8c. Data cleaning (Act 4) is a 30-second mention, because synthetic data skips it. If you need to cut:
+- drop Act 8c (tracking and languages, 9 min) first, then Act 8b (connectors, 3 min), then Act 1b (Word import, 5 min), then Act 5b (weighting, 6 min), then Act 6b (Segments tool, 4 min);
+- the core path is the opening plus Acts 1, 2, 3, 3b, 5, 6 and 8, about 54 minutes. Keep Act 3b in: it's the one part the audience takes part in.
 
 **Study used throughout:** the BrewCo home coffee machine brand health study. Its brief is in [brief.md](brief.md).
 
-**New since the last version of this runbook:**
+**New since the last version of this runbook (21 November):**
+- on the Decipher survey, three new tabs (Act 2):
+  - **To-dos**: what programming couldn't do on its own, with **Fix with AI** (the reviewer re-checks the fix) and **Mark done**;
+  - **Logic test**: simulated respondents run through the XML and are checked against the questionnaire's bases and terminates;
+  - **Compare XML**: each question side by side with a hand-edited or reference XML;
+- programming now reviews and fixes the XML for up to 5 rounds, until nothing is left or nothing changes, so it takes a little longer (Act 2);
+- a **Study tools** workspace tab with three tools:
+  - **Segments**: compare solutions, name the segments, add them to the data, download an Excel typing tool (Act 6b);
+  - **Tracking**: start the next wave, see what changed, trend tables between waves (Act 8c);
+  - **Languages**: translate the questionnaire, review it and sign it off (Act 8c);
+- updated accuracy figures in section 6.
+
+**Earlier additions:**
 - importing a finished Word questionnaire exactly as written (Act 1b);
 - the programming logic panel with **Edit logic** and **Show in the file** (Act 2);
 - the room takes a live survey on their phones while the bot and fraud detector flags them (Act 3b);
@@ -32,6 +44,7 @@ Some steps take a few minutes, so run the demo across several projects:
 | **Demo – Import** | The BrewCo questionnaire, downloaded as Word from Backup and imported the day before. | Act 1b: the imported questionnaire, its source text, and its planned logic |
 | **Demo – Quality** | A 6-question BrewCo survey, uploaded to Decipher with bot and fraud tracking the day before. | Act 3b: the room takes the survey on their phones |
 | **BrewCo Live Quality Check** | The same 6-question survey, already tested on 16–17 November. It has 15 sessions, 5 of them bots. | Act 3b fallback, and showing what a real bot looks like |
+| **Demo – Wave 2** | The second wave of the BrewCo study, started from Demo – Backup the day before, with its own 600 synthetic respondents and a Spanish translation. | Act 8c: wave changes, trend tables and languages |
 
 **Rule of thumb:**
 - **Short steps** (under a minute): wait on screen and narrate the stage messages in the chat.
@@ -44,7 +57,10 @@ Some steps take a few minutes, so run the demo across several projects:
 | Brief to questionnaire | 1.6 min | 5.7 min | 5.5 min | Live; narrate, and go to Backup at 3 min |
 | Questionnaire edit by chat | 0.9 min | 1.0 min | 2.0 min | Live |
 | Word questionnaire import (includes planning the logic) | – | – | **not yet rehearsed** | Start it live, show **Demo – Import** while it runs |
-| Decipher programming | – | – | **not yet rehearsed** | Start it live, show **Demo – Backup's** Decipher card while it runs. The 4 s from the 13th no longer applies: programming now plans the logic and reviews the XML first. On client questionnaires that took 4–13 min |
+| Decipher programming | – | – | **not yet rehearsed** | Start it live, show **Demo – Backup's** Decipher card while it runs. The 4 s from the 13th no longer applies: programming now plans the logic and reviews and fixes the XML for up to 5 rounds. On client questionnaires that took 2–15 min, and one long one took 22 min |
+| Logic test (400 respondents) | – | – | about 2 s on a 3-question test survey, 21 Nov | Live |
+| Fix with AI on one to-do | – | – | 6–30 s on a test survey, 21 Nov | Live |
+| Compare XML | – | – | under 2 s | Live |
 | Prolific price quote | under 10 s | – | 10 s | Live, **quote only** |
 | The room takes the 6-question survey | – | – | **not yet rehearsed** | Live. Allow 3 min for phones; each result appears about 10 s after that person finishes |
 | Synthetic respondents (600) | 1.8 min | 2.0 min | 1.8 min | Live |
@@ -55,6 +71,10 @@ Some steps take a few minutes, so run the demo across several projects:
 | Build the tab spec | under 10 s | 4.4 min | 1.7 min | Live |
 | Run the full tab spec | 0.5 min | **21.5 min** | 33 s | **Show it from Backup** |
 | Analysis (driver, segmentation, tests) | 0.3 min | 11 min | 16–64 s | Live; switch to Backup if past 2 min |
+| Segments tool: compare 3 to 6 segments (600 rows) | – | – | about 3 s on test data, 21 Nov | Live |
+| Start the next wave | – | – | under 2 s | Done the day before; don't start a wave live |
+| Trend table | – | – | under 2 s | Live |
+| Translate the questionnaire (Backup's has 337 segments) | – | – | **not yet rehearsed**; 5 segments took about 20 s | Done the day before; only edit and sign off live |
 | AutoCoder on an open end | 1.8 min | – | 16 s | Live |
 | Report plan refresh | under 1 min | 1.3 min | 16 s | Live |
 | Generate the report deck | 5.4 min | 6.7 min | 6–9 min | Start it live, show Backup's deck while it runs |
@@ -128,6 +148,17 @@ Some steps take a few minutes, so run the demo across several projects:
    - **Check the OpenAI account has credit.** It's now the only provider. Send one short request in Backup to check.
    - Synthetic data and coding on OpenAI were checked against Backup on 19 November: the persona plan took 34 s and the answer profiles 1.6 min, and 40 open ends were coded in 39 s. Re-time Act 3 at the rehearsal.
 7. **Check the AutoCoder is installed.** If you ran `uv sync` since installing it, reinstall it (see the README).
+8. **Check Backup's survey with the new Decipher tabs.** After step 1, open Backup's Decipher survey:
+   - **Logic test:** click **Run logic test**. It should say **100% of respondents match** and **No problems**. If it lists a problem, note it: it's a real bug, and it's better found now than on stage.
+   - **To-dos:** note one to-do that is easy to fix (a base or a terminate is best). In Act 2 you'll click **Fix with AI** on it. Don't fix it now.
+   - **Compare XML:** download Backup's XML, change one question's wording in a text editor, and save it as `brewco_edited.xml`. Act 2 compares against it. Use BrewCo only, never a client's XML.
+9. **Build Demo – Wave 2** for Act 8c. Do this after step 3, so the wave copies Backup's weighting setup.
+   - In **Demo – Backup**, open **Study tools → Tracking**. Type `Q1 2027` as the label and `Demo – Wave 2` as the name, then click **Start wave 2**. This only adds a tracking label to Backup; its outputs don't change. The app opens the new project.
+   - In Demo – Wave 2, type `Program this questionnaire in Decipher`, then press **Keep XML only**. Its logic is already planned, so this is quick.
+   - Type the same synthetic-respondents prompt as Act 3. The trend table compares this data with Backup's.
+   - Check **Tracking → Changes since the previous wave**. It should say all questions are unchanged. To have something to show, edit one question's wording in the questionnaire editor (for example, add "in the past 12 months" to a question) and save it.
+   - Open **Study tools → Languages** and add `Spanish (United States)`, with the note `Neutral US Spanish; keep brand names in English`. Time it and put the time in the table above. Don't sign it off: you'll do that live.
+10. **Try the Segments tool once** in Demo – Backup (**Study tools → Segments**). Pick the ten BrewCo image ratings, compare 3 to 6 segments, and write down which solution is recommended. Don't press **Add segments to the data** in Backup: it makes a new dataset version.
 
 ### One hour before
 
@@ -178,6 +209,9 @@ cd backend
 - **Don't ask the room for personal details** in the survey, and tell them what's recorded before they start (see Act 3b).
 - **Don't put client questionnaires or client survey names on screen.** That includes the benchmark surveys behind the accuracy figures in section 6.
 - **Don't run the full tab spec live.** It can take up to 20 minutes.
+- **Don't start a new wave live, and don't translate the whole questionnaire live.** Both are done the day before in Demo – Wave 2. Live, only show the changes and the trend, and edit and sign off the language.
+- **Don't press Add segments to the data in Demo – Backup.** It makes a new dataset version in Backup. Use Demo – Live.
+- **Don't paste a client's XML into Compare XML.** Use the edited BrewCo file from the day before.
 - **Don't call the stand-in "our Google Drive".** It's a local stand-in until an admin sets up the real Drive and Slack connectors. Say so in one line (see Act 8b).
 
 ---
@@ -250,7 +284,7 @@ Use this questionnaire
 
 ---
 
-### Act 2 – Programming the survey in Decipher (6 min)
+### Act 2 – Programming the survey in Decipher (9 min)
 
 **Type:**
 ```
@@ -258,7 +292,7 @@ Program this questionnaire in Decipher
 ```
 
 **Say:**
-> "The programming agent turns the instructions into logic: who sees each question, which rows show, number ranges, terminates and rotations. It builds the Decipher XML in our programmers' house style, and a reviewer reads each question's instructions next to its XML and fixes what's missing."
+> "The programming agent turns the instructions into logic: who sees each question, which rows show, number ranges, terminates and rotations. It builds the Decipher XML in our programmers' house style. Then a reviewer reads each question's instructions next to its XML, and the planner fixes what's missing. That repeats until nothing is left or nothing more changes."
 
 This takes a few minutes. Point at the stage messages ("Checking the XML against the questionnaire (round 1)"), then **switch to Demo – Backup** for steps 1–2 and come back for step 3.
 
@@ -273,6 +307,22 @@ This takes a few minutes. Point at the stage messages ("Checking the XML against
    Press **Upload to Decipher** once (see *Do not do these live*), or **Keep XML only**.
 4. **Download XML**, then **Preview survey**: click through two or three screens as a respondent, and answer a screener so the routing is visible.
 5. The Decipher survey link in the chat reply, if you uploaded.
+
+**Then show the three new tabs on the Decipher survey.** Use Backup's survey if the live one isn't done.
+
+6. **To-dos.** Each to-do is grouped by question, and says whether the planner left it or the reviewer found it.
+   - Click **Fix with AI** on the to-do you picked the day before. It takes up to half a minute.
+     > "It plans that question again with the to-do as the problem, rebuilds the XML, and then the reviewer checks the fix. If the reviewer still finds something, it stays on the list. Nothing is uploaded."
+   - Click **Mark done** on a quota or a page-layout to-do.
+     > "Mark done is for what a programmer handles in Decipher. It disappears from the XML comments and moves to Done, where it can be reopened."
+7. **Logic test.** Click **Run logic test**. It takes a couple of seconds.
+   > "This is the survey test a programmer does by clicking through the test link, done 400 times. Each simulated respondent takes the XML the way Decipher would. Then the same answers are checked against the questionnaire's own bases and terminates. If anyone sees a question they shouldn't, or isn't screened out when they should be, it shows the answers that caused it."
+   
+   Point to **100% of respondents match** and the screened-out counts. Open **How many saw each question** to show the counts side by side.
+8. **Compare XML** (optional, 1 min). Choose `brewco_edited.xml`, then **Compare**.
+   > "If a programmer has edited the XML, or we have the XML from an earlier wave, this lines up each question with ours side by side, using the same checks as our accuracy benchmark."
+   
+   Open the question you edited and show the highlighted line.
 
 **Fallback:**
 - **The live run isn't done when you've finished steps 1–2:** show Backup's Decipher card and preview, and come back to the live upload card at the start of Act 3.
@@ -479,6 +529,33 @@ Test whether likelihood to recommend BrewCo differs across regions using a Krusk
 
 ---
 
+### Act 6b – The Segments tool (4 min, optional)
+
+Still in **Demo – Live**. Open **Study tools → Segments**.
+
+**Say:**
+> "The chat segmentation you just saw is the analyst's view. This is the guided version a researcher uses to choose a segmentation and hand it on."
+
+**Do:**
+1. Search `image`, tick the ten BrewCo image ratings, leave **Segments 3 to 6**, and click **Compare solutions**. It takes a few seconds.
+2. **Show the solutions table:**
+   - **Separation:** how clearly respondents fall into one segment.
+   - **Stability:** whether the same segments come back when it's fitted on a different 80% of the sample. 1 means identical.
+   - **Smallest:** the smallest segment's share.
+   - **Typing tool:** how many of a held-out quarter it classifies correctly, and with how few questions.
+   > "It recommends the best-separated solution whose segments are all at least 5% of the sample and that comes back the same on different data. A researcher can pick another with Use."
+3. **The segment cards:** each shows its share and the three ratings that set it apart. Rename one segment live, for example "Value seekers", and click **Save names**.
+4. Click **Typing tool (Excel)** and open the file.
+   > "Enter a respondent's answers in the yellow cells and it names their segment. The formulas are in the sheet, so a client can use it in a future survey without us."
+5. Click **Add segments to the data.**
+   > "The segment is now a variable with these names as labels, so it can be a banner in the tab book or a filter in the deck."
+
+**Note:** the Segments tool doesn't use the weight. If anyone asks, say so.
+
+**Fallback:** if Compare solutions shows an error, read it out. It usually means too few complete respondents for 6 segments: change **to 6** to **to 5** and try again.
+
+---
+
 ### Act 7 – Open-end coding (4 min)
 
 **Type:**
@@ -573,6 +650,36 @@ Click **Approve**.
 
 ---
 
+### Act 8c – The next wave, and other markets (9 min, optional)
+
+Open **Demo – Wave 2** (built the day before), then **Study tools**.
+
+**Say:**
+> "Most of our work isn't one study; it's a tracker that comes back every quarter, often in several countries. So the second wave shouldn't start from scratch."
+
+**1. Tracking** (about 5 min)
+- **Waves in this study:** Wave 1 (Demo – Backup) and Q1 2027. Click Wave 1 to show it's the same study, then come back.
+  > "Starting a wave copied the questionnaire with all its programming logic already planned, the tab spec, the weighting setup and the report plan. Programming this wave took a fraction of the time, because there was nothing left to plan."
+- **Changes since the previous wave:** the question you reworded the day before is listed, with how similar the wording is.
+  > "Any change that would break the trend is flagged before fieldwork: new or reworded answers, a changed base, or wording that's moved too far."
+- **Trend tables:** search and tick the recommend question (Q18) and the BrewCo image ratings, then click **Trend**.
+  > "Each wave is tested against the one before it, at 95%. The arrows mark significant changes; a change without an arrow is within the noise."
+  
+  Both waves are synthetic, so most changes will be small. Say so rather than reading meaning into one arrow.
+
+**2. Languages** (about 4 min)
+- Open **Spanish (United States)**. It shows how many segments are translated, and that it's a **Draft**.
+  > "It translates what respondents see: the wording, the answers and the grid rows. Brand names and piping are kept as written, and programmer notes stay in English for our programmers."
+- Show one question side by side: English on the left, Spanish on the right. Edit one translation and click **Save**.
+  > "A local reviewer checks every line and can change any of them."
+- Type a reviewer name, then click **Sign off**. The badge turns to **Signed off**.
+- Click **DOCX** to download the Spanish questionnaire, and open it for a few seconds.
+  > "If the English questionnaire changes after sign-off, only the changed lines are translated again, and the language goes back to review. Nothing goes to field in a language nobody has checked."
+
+**Fallback:** if Demo – Wave 2 is missing a part, skip that part. Starting a wave is instant, but programming the wave and generating its data take a few minutes, and a full translation takes longer still.
+
+---
+
 ### Act 9 – Trust and learning (5 min)
 
 **Show:**
@@ -610,6 +717,9 @@ Click **Approve**.
 | The agent asks a clarifying question | That's a feature: answer it in one line ("Use 18-34, 35-54, 55+"). Say it asks rather than guesses. |
 | A prompt with question numbers fails | Use the plain-language version, or check the variable names in the questionnaire card. |
 | **Research census targets** shows an error, or leaves a variable blank | Read the message out. Click **Enter targets myself** and type the figures from Act 5b, or show Backup's **Weighting** tab. "Credit" in the message means the OpenAI account needs topping up. |
+| The Logic test lists a problem live | Read it out: "it found a respondent who sees a question they shouldn't, before any real respondent did". Then open the To-dos tab. It's the test doing its job, not a failure. |
+| **Fix with AI** says the reviewer still found something | Read the new to-do out. It stays on the list for a programmer; say "it fixes what it can and says what's left". |
+| A Study tools panel shows "Upload the data first" or "needs at least two waves with data" | You're in a project without data. Switch to Demo – Live (Segments) or Demo – Wave 2 (Tracking). |
 | The frontend shows a blank or error page | Reload the browser. Project state is saved, and the chat history comes back. |
 | The backend stops responding | Restart it with the backend command above. Tasks and outputs persist in the database. |
 | A connector step says the server "could not be reached", or the stand-in card shows **Needs attention** | The stand-in isn't running. Start it with the command under *One hour before*, then click **Test** on its card. If the chat says "No connectors are connected yet", the stand-in was removed: add it again from the Connectors dialog. |
@@ -632,8 +742,12 @@ Click **Approve**.
   - Any other MCP server can be added by URL.
 - **Can the agent post or delete things on its own?** No. Tools that only read run straight away. Anything that uploads, posts or changes something waits on an approval card, which shows the exact file or message.
 - **How accurate is the Decipher programming?** See *How good the programming is* in section 6.
-- **Can it read our questionnaires as they're written?** Yes, if each question has an id such as S1, Q3a or CAT11_US, in the text or in a "QID" table row. Without ids, a file can only be used as a reference to draft a new questionnaire. Images, embedded spreadsheets and Word comments aren't read.
-- **What's next?** Repeated question blocks (loops) and shared answer lists in Decipher, then a developer mode for approved external integrations.
+- **Can it read our questionnaires as they're written?** Yes, if each question has an id such as S1, Q3a or CAT11_US, in the text or in a "QID" table row (with or without a full stop, as in "BM1."). Without ids, a file can only be used as a reference to draft a new questionnaire. Images, embedded spreadsheets and Word comments aren't read.
+- **How do we know the survey logic is right before fieldwork?** The Logic test runs simulated respondents through the XML and checks each one against the questionnaire's bases and terminates. The questionnaire side is worked out separately from the XML builder, so a building mistake shows up as a disagreement. It doesn't replace a programmer's check on Decipher's own test link, and it doesn't check logic that depends on select-all grids.
+- **What happens to the to-dos?** They're on the survey's To-dos tab. **Fix with AI** plans that question again and has the reviewer check the result; **Mark done** is for what a programmer handled in Decipher. A to-do someone asks the AI to fix counts as an instruction from then on, so the reviewer doesn't flag the fix as going beyond the questionnaire.
+- **Can it run trackers and multi-country studies?** Yes. A new wave starts with the previous wave's questionnaire, logic, tab spec, weighting and report plan, and lists what changed. Trend tables test each wave against the one before. Each language is translated, reviewed, signed off, and built as its own survey XML. One Decipher survey holding several languages isn't generated yet.
+- **How is the segmentation chosen?** Each solution is scored on separation, stability on a different 80% of the sample, and the smallest segment's size. The recommendation is the best-separated one with every segment at least 5% and stability of at least 0.6. The researcher can pick another.
+- **What's next?** Repeated question blocks (loops) in Decipher, fieldwork monitoring (quota fill, incidence and drop-off by question), then MaxDiff and conjoint.
 
 ---
 
@@ -672,14 +786,15 @@ Each item below says why it isn't in the demo, what to show instead, and a line 
 
 - **Why not live:** the evidence is real client questionnaires and the XML our programmers built from them. They can't go on screen, and each check takes 4–20 minutes per survey.
 - **What was measured:**
-  - 11 client questionnaires, each imported from Word and programmed;
+  - 14 client questionnaires, each imported from Word and programmed;
   - each result was compared with the XML a programmer built by hand for the same survey;
   - the comparison covers question types, answer rows and columns, wording, who sees each question, terminates, piping, ranges and randomisation;
-  - in November 2026 the two sets matched at 85.1% (7 surveys) and 89.8% (4 surveys).
+  - on 21 November 2026 the first set of 7 surveys matched at 85.4%, and the 3 newest at 85.2% (up from 79.3% when first measured). A second set of 4 matched 89.8% when last measured;
+  - across the first and newest sets, the to-dos left for a programmer fell from 880 to 749.
 - **What it doesn't do yet:**
   - it doesn't build Decipher loops, where a block is repeated per brand;
-  - it doesn't define shared answer lists once and reuse them;
-  - quotas and sample-source logic are left for the programmer.
+  - quotas and sample-source logic are left for the programmer;
+  - hand-programmed surveys also add hidden helper variables that aren't in the questionnaire, and word some answer lists differently. These count against the score even when the survey works.
   
   These are left as clear to-dos in the XML, not guessed.
 - **Say:**
@@ -726,4 +841,6 @@ Each item below says why it isn't in the demo, what to show instead, and a line 
 - **MaxDiff and conjoint:** refused on purpose, rather than approximated.
 - **Panels other than Prolific:** not connected yet.
 - **Decipher loops and quotas:** left as programmer to-dos, as described above.
-- **Weighted advanced analyses:** driver analysis, segmentation and the significance tests in Act 6 run unweighted. Crosstabs, tab books and the deck are weighted.
+- **Weighted advanced analyses:** driver analysis, segmentation (including the Segments tool) and the significance tests in Act 6 run unweighted. Crosstabs, tab books and the deck are weighted.
+- **One Decipher survey in several languages:** each language is built as its own survey XML.
+- **Driving Decipher's own test link:** the Logic test simulates the XML locally instead.

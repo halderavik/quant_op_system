@@ -234,7 +234,10 @@ class _Parser:
         """
         value = self._and()
         while self._accept("word", "or"):
-            value = value or self._and()
+            # Reason: parse the right side even when the left decides the result;
+            # short-circuiting would leave its tokens unread and fail the condition.
+            right = self._and()
+            value = value or right
         return value
 
     def _and(self) -> bool:
@@ -245,7 +248,8 @@ class _Parser:
         """
         value = self._not()
         while self._accept("word", "and"):
-            value = value and self._not()
+            right = self._not()
+            value = value and right
         return value
 
     def _not(self) -> bool:

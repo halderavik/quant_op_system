@@ -14,6 +14,7 @@ import {
   uploadFile,
 } from "./api";
 import { KpiGrid, LiveDot, RespondentTable, useLiveResults, useNow } from "./quality/QualityParts";
+import { QualityDataCard } from "./quality/QualityData";
 import { QualityRulesCard } from "./quality/QualityRules";
 import { Button } from "./ui";
 
@@ -243,6 +244,10 @@ export function LiveQualityPanel({ projectId, onProgrammed, onError, onOpenDashb
       </section>
 
       {state.enabled && <QualityRulesCard onError={onError} programmed={tracked} projectId={projectId} />}
+
+      {(tracked || state.data?.tracked) && (
+        <QualityDataCard onChange={setState} onError={onError} projectId={projectId} state={state} />
+      )}
 
       {tracked && (
         <section aria-live="polite" className="space-y-3">

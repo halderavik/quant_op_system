@@ -1,6 +1,7 @@
 """Translate questionnaire expressions into Decipher conditions."""
 
 import re
+from difflib import SequenceMatcher
 
 from app.schemas.expression import Comparison, Expr
 from app.schemas.questionnaire import Question, Questionnaire
@@ -52,7 +53,7 @@ def punch_maps(
                 code: label for code, (label, _) in col_labels(question.options).items()
             }
         else:
-            rows[question.id] = row_labels(question.options)
+            rows[question.id] = piped_row_labels(question, by_id)
             if question.programming and question.programming.dropdown:
                 rows[question.id] = {
                     code: "ch" + label[1:] for code, label in rows[question.id].items()
@@ -70,7 +71,9 @@ def col_labels(options: list) -> dict[str, tuple[str, str | None]]:
 
     Ascending whole-number codes name the columns (c0 ... c10) and need no value;
     other codes keep position labels (c1 ... c5) with the code as the value, as in
-    a 5-to-1 agreement scale.
+    a 5-to-1 agreement scale. A Don't know or Not applicable point coded apart from
+    the scale (97, 98, or 9 after a 5-point scale) is named after its code (c97),
+    and only the scale points are numbered.
 
     Args:
         options: Scale points.
@@ -79,14 +82,48 @@ def col_labels(options: list) -> dict[str, tuple[str, str | None]]:
         Code to (column label, value or None).
     """
     codes = [str(option.code) for option in options]
-    numeric = codes and all(code.lstrip("-").isdigit() for code in codes)
-    if numeric and len(set(codes)) == len(codes):
-        values = [int(code) for code in codes]
-        if values == sorted(values) and min(values) >= 0:
-            return {code: (f"c{int(code)}", None) for code in codes}
+    numeric = bool(codes) and all(code.lstrip("-").isdigit() for code in codes)
+    if not numeric or len(set(codes)) != len(codes):
+        return {
+            code: (f"c{index}", code if code.lstrip("-").isdigit() else None)
+            for index, code in enumerate(codes, start=1)
+        }
+    apart = _off_scale_codes(options)
+    scale = [code for code in codes if code not in apart]
+    values = [int(code) for code in scale]
+    labels: dict[str, tuple[str, str | None]] = {}
+    if values == sorted(values) and min(values, default=0) >= 0:
+        labels.update({code: (f"c{int(code)}", None) for code in scale})
+    else:
+        labels.update({code: (f"c{index}", code) for index, code in enumerate(scale, start=1)})
+    for code in apart:
+        labels[code] = (f"c{int(code)}", code)
+    return {code: labels[code] for code in codes}
+
+
+# Reason: kept local to the engines (no services import); matches Don't know style labels.
+_APART_LABEL = re.compile(
+    r"^\s*(?:(?:i\s+)?don.?t know|do not know|not sure|unsure|not applicable|n/?a\b|none\b"
+    r"|prefer not|no opinion|can.?t say|cannot say)",
+    re.I,
+)
+
+
+def _off_scale_codes(options: list) -> set[str]:
+    """Codes of points outside the scale's run of consecutive numbers (Don't know as 97 or 9)."""
+    numbers = sorted({int(option.code) for option in options})
+    if len(numbers) < 3:
+        return set()
+    run_end = numbers[0]
+    for number in numbers[1:]:
+        if number != run_end + 1:
+            break
+        run_end = number
     return {
-        code: (f"c{index}", code if code.lstrip("-").isdigit() else None)
-        for index, code in enumerate(codes, start=1)
+        str(option.code)
+        for option in options
+        if int(option.code) > run_end + 1
+        and (int(option.code) >= 90 or _APART_LABEL.search(str(getattr(option, "label", ""))))
     }
 
 
@@ -103,29 +140,107 @@ def grid_row_labels(question: Question, questions: dict[str, Question]) -> dict[
     Returns:
         "1", "2", ... to labels such as r1 or r98.
     """
-    spec = question.programming
-    source = questions.get(spec.row_condition.source) if spec and spec.row_condition else None
-    if source is not None and source.type in {"grid", "matrix"}:
-        # Reason: a grid source's rows are its items, labelled by position.
-        by_text = {
-            " ".join(item.lower().split()): f"r{index}"
-            for index, item in enumerate(source.matrix_items, start=1)
-        }
-    else:
-        source_labels = row_labels(source.options) if source and source.options else {}
-        by_text = {
-            " ".join(option.label.lower().split()): source_labels[str(option.code)]
-            for option in (source.options if source else [])
-        }
+    source = piped_source(question, questions)
     labels: dict[str, str] = {}
     taken: set[str] = set()
+    match = row_matcher(source)
     for index, item in enumerate(question.matrix_items, start=1):
-        label = by_text.get(" ".join(item.lower().split())) or f"r{index}"
+        label = match(item) or f"r{index}"
         if label in taken:
             label = f"r{index}_{index}"
         taken.add(label)
         labels[str(index)] = label
     return labels
+
+
+def piped_row_labels(question: Question, questions: dict[str, Question]) -> dict[str, str]:
+    """Row labels of a list question, lined up with the question its rows are piped from.
+
+    Rows are named after their own codes (r1, r98). When the rows are piped from an
+    earlier list ("ONLY SHOW PRODUCTS PURCHASED AT Q1") and a row's code differs from
+    the source's code for the same wording, the row takes the source's label, so
+    ``rowCond="Q1[row]"`` shows the right rows.
+
+    Args:
+        question: A list question (not a grid).
+        questions: Questions by id.
+
+    Returns:
+        Code to row label.
+    """
+    own = row_labels(question.options)
+    source = piped_source(question, questions)
+    if source is None or not question.options:
+        return own
+    match = row_matcher(source)
+    wanted = {str(o.code): match(o.label) for o in question.options}
+    moved = {code: label for code, label in wanted.items() if label and label != own[code]}
+    if not moved:
+        return own
+    kept = {label for code, label in own.items() if code not in moved}
+    labels = dict(own)
+    for code, label in moved.items():
+        if label not in kept:
+            labels[code] = label
+            kept.add(label)
+    return labels
+
+
+def piped_source(question: Question, questions: dict[str, Question]) -> Question | None:
+    """The earlier question whose answers decide which of this question's rows show."""
+    spec = question.programming
+    return questions.get(spec.row_condition.source) if spec and spec.row_condition else None
+
+
+def row_key(text: str) -> str:
+    """Row wording reduced for matching: case, punctuation, and "(specify)" ignored."""
+    text = re.sub(r"\((?:please\s+)?specify\)|_{2,}|:+\s*$", " ", text.lower())
+    return " ".join(re.sub(r"[^\w\s]", " ", text).split())
+
+
+def row_matcher(source: Question | None):
+    """Find the source row label for a piped row's wording.
+
+    Exact wording first, then the same words without punctuation, then a close
+    match (a questionnaire often words a piped list slightly differently).
+
+    Args:
+        source: Question the rows are piped from, or None.
+
+    Returns:
+        A function from row wording to the source's row label, or None.
+    """
+    if source is None:
+        return lambda text: None
+    if source.type in {"grid", "matrix"}:
+        # Reason: a grid source's rows are its items, labelled by position.
+        pairs = [(item, f"r{index}") for index, item in enumerate(source.matrix_items, start=1)]
+    else:
+        codes = row_labels(source.options) if source.options else {}
+        pairs = [(option.label, codes[str(option.code)]) for option in source.options]
+    exact = {" ".join(text.lower().split()): label for text, label in pairs}
+    loose: dict[str, str] = {}
+    for text, label in pairs:
+        loose.setdefault(row_key(text), label)
+
+    def match(text: str) -> str | None:
+        found = exact.get(" ".join(text.lower().split())) or loose.get(row_key(text))
+        if found:
+            return found
+        key = row_key(text)
+        scored = sorted(
+            ((SequenceMatcher(None, key, other).ratio(), label) for other, label in loose.items()),
+            reverse=True,
+        )
+        if (
+            scored
+            and scored[0][0] >= 0.85
+            and (len(scored) == 1 or scored[1][0] < scored[0][0] - 0.05)
+        ):
+            return scored[0][1]
+        return None
+
+    return match
 
 
 def row_labels(options: list) -> dict[str, str]:
@@ -254,11 +369,23 @@ def _comparison(
         return f"{name}.ival {_COMPARE[expr.op]} {_literal(expr.value)}"
     if expr.op in {"in", "not_in"}:
         clause = _membership(name, question, _as_list(expr.value), rows, cols)
-        return clause if expr.op == "in" else f"not ({clause})"
+        return clause if expr.op == "in" else _answered_but_not(name, question, f"not ({clause})")
     selected = _selected(name, question, expr.value, rows.get(expr.ref, {}), cols.get(expr.ref, {}))
     if expr.op == "ne":
-        return f"not ({selected})" if selected.startswith("(") else f"not {selected}"
+        negated = f"not ({selected})" if selected.startswith("(") else f"not {selected}"
+        return _answered_but_not(name, question, negated)
     return selected
+
+
+def _answered_but_not(name: str, question: Question | None, negated: str) -> str:
+    """An "ask if Q5 is not 99" base on a select-all question also needs Q5 to have been answered.
+
+    Without the guard, a respondent who never saw Q5 also passes ``not Q5.r99``.
+    Programmers write ``(Q5.any and not Q5.r99)``.
+    """
+    if question is not None and question.type == "multi_select":
+        return f"({name}.any and {negated})"
+    return negated
 
 
 def _ref_comparison(

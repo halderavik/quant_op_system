@@ -178,7 +178,7 @@ def _question(result: Similarity, ref: _Q, ours: _Q, respondents: list[dict[str,
     _rows_cols(result, "Questions", ref, ours)
     _behaviour(result, ref, ours)
     if ref.cond or ours.cond:
-        agree, readable = _agreement(ref.cond or "1", ours.cond or "1", respondents)
+        agree, readable = _agreement(_effective_cond(ref), _effective_cond(ours), respondents)
         detail = f"ours: {ours.cond or 'always'} | reference: {ref.cond or 'always'}" + (
             "" if readable else " (could not be evaluated)"
         )
@@ -189,6 +189,23 @@ def _question(result: Similarity, ref: _Q, ours: _Q, respondents: list[dict[str,
             readable and agree == 1.0,
             f"{agree:.0%} same respondents; {detail}",
         )
+
+
+# rowCond="Q5[row]": only the rows chosen at Q5 show.
+_PIPED_FROM = re.compile(r"^(\w+)\[row\]$")
+
+
+def _effective_cond(q: _Q) -> str:
+    """Who sees the question: its cond, plus "something chosen at the source" for piped rows.
+
+    Decipher skips a question whose rowCond leaves no rows, so ``rowCond="Q5[row]"``
+    with no cond and ``cond="Q5.any"`` reach the same respondents.
+    """
+    cond = q.cond or "1"
+    piped = _PIPED_FROM.match(_has(q, "rowCond"))
+    if piped is None:
+        return cond
+    return f"({cond}) and {piped.group(1)}.any"
 
 
 def _rows_cols(result: Similarity, area: str, ref: _Q, ours: _Q) -> None:

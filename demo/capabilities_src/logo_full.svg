@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -110 1080 600" width="1080" height="600">
+  <rect fill="#08090b" x="2" y="3" width="201" height="201"/><rect fill="#08090b" x="263" y="3" width="200" height="201"/>
+  <rect fill="#08090b" x="2" y="274" width="201" height="201"/><rect fill="#a6aaad" x="263" y="274" width="200" height="201"/>
+  <path d="M97 166 V331 M97 166 L239 249 L381 331 M381 166 V331" fill="none" stroke="#ffffff" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#1f6892" stroke="#ffffff" stroke-width="12"><circle cx="239" cy="84" r="83"/><circle cx="97" cy="166" r="46"/><circle cx="381" cy="166" r="46"/><circle cx="239" cy="249" r="46"/><circle cx="97" cy="331" r="46"/><circle cx="381" cy="331" r="46"/><circle cx="239" cy="412" r="46"/></g>
+  <path d="M97 166 V331 M97 166 L239 249 L381 331 M381 166 V331" fill="none" stroke="#1f6892" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#1f6892"><circle cx="239" cy="84" r="83"/><circle cx="97" cy="166" r="46"/><circle cx="381" cy="166" r="46"/><circle cx="239" cy="249" r="46"/><circle cx="97" cy="331" r="46"/><circle cx="381" cy="331" r="46"/><circle cx="239" cy="412" r="46"/></g>
+  <g fill="none" stroke="#1f6892"><path d="M589 60 V450" stroke-width="43"/><ellipse cx="690" cy="311" rx="102" ry="120" stroke-width="43"/><path d="M899.6 -7 A64 64 0 1 1 950 83 A77 77 0 1 1 890 198.5" stroke-width="33"/></g>
+</svg>

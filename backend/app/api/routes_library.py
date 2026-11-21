@@ -222,9 +222,19 @@ async def upload_file(
     )
     dataset_id = None
     workbook = None
+    live_quality = None
     if suffix in {"sav", "zsav"}:
         dataset = ingest_spss(db, storage, settings, project_id, row.id)
         dataset_id = dataset.id
+        from app.services.quality_merge import merge_into_dataset
+
+        # Reason: a tracked Decipher export carries QOS_SESSION; add the Live quality flags
+        # as LQ_ variables so they can be tabbed and filtered. Never blocks the upload.
+        live_quality = await merge_into_dataset(
+            db, storage, settings, project_id, dataset, new_version=False
+        )
+        if live_quality["status"] == "no_tracking":
+            live_quality = None
         db.commit()
         from app.services.report_triggers import schedule_data_stage
 
@@ -242,6 +252,7 @@ async def upload_file(
         "sha256": row.sha256,
         "dataset_id": dataset_id,
         "workbook": workbook,
+        "live_quality": live_quality,
     }
 
 

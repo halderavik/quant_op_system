@@ -42,10 +42,11 @@ QUESTION_ID = re.compile(
     r"^(?:\|\s*)?(?:\[RED:\s*)?([A-Z]{1,6}\d{1,3}[A-Za-z]{0,2}(?:_[A-Z][A-Za-z/]*)?)(?:\.|:|\s|$)"
 )
 
-# A table row that labels the id in its own cell: "| QID | S1 |" or "| Question ID | HID_COUNTRY |".
+# A table row that labels the id in its own cell: "| QID | S1 |", "| QID | BM1. |", or
+# "| Question ID | HID_COUNTRY |".
 # The label makes any id-like word safe to take, including ones without digits.
 LABELLED_ID = re.compile(
-    r"^\|\s*(?:QID|Q\s?ID|Q\s?#|Question\s+(?:ID|No\.?|Number))\s*:?\s*\|\s*([A-Za-z][A-Za-z0-9_]{0,40})\s*\|",
+    r"^\|\s*(?:QID|Q\s?ID|Q\s?#|Question\s+(?:ID|No\.?|Number))\s*:?\s*\|\s*([A-Za-z][A-Za-z0-9_]{0,40})[.:]?\s*\|",
     re.I,
 )
 

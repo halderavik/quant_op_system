@@ -415,3 +415,21 @@ def test_ids_in_a_labelled_qid_cell_start_sections():
     header, sections = split_sections(text, budget=1)
     assert header == "Overview"
     assert [question_ids(section) for section in sections] == [["HID_COUNTRY"], ["S_NDA"], ["S1"]]
+
+
+def test_labelled_qid_cell_may_end_with_a_period():
+    """A QID cell written "BM1." names BM1; missing it once dropped most of a questionnaire."""
+    text = "\n".join(
+        [
+            "[TABLE]",
+            "| UNAIDED ASSOCIATIONS |",
+            "| QID | BM1. |",
+            "| What comes to mind? |",
+            "[/TABLE]",
+            "[TABLE]",
+            "| QID | C1: |",
+            "| Which gender best describes you? |",
+            "[/TABLE]",
+        ]
+    )
+    assert question_ids(text) == ["BM1", "C1"]

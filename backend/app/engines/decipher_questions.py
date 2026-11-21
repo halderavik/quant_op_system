@@ -163,9 +163,19 @@ def _grid(parent: ET.Element, question: Question, build: SurveyBuild) -> Coverag
         node.set("atleast", "1")
     punches: list[Punch] = []
     columns = col_labels(question.options)
-    for option in question.options:
+    codes = [str(option.code) for option in question.options]
+    repeated = len(set(codes)) != len(codes)
+    if repeated:
+        # Reason: "Which is closer to your view?" pairs each numbered 1, 2 read as one
+        # scale; Decipher needs unique column labels, so number them by position.
+        _warn(
+            build,
+            f"{question.id} repeats answer codes ({', '.join(codes)}); it may be several "
+            "either/or questions. Columns are numbered by position; check the structure.",
+        )
+    for position, option in enumerate(question.options, start=1):
         code = str(option.code)
-        label, value = columns[code]
+        label, value = (f"c{position}", code) if repeated else columns[code]
         add_element(node, "col", option.label, label=label, value=value)
         punches.append(Punch(code=code, label=option.label, row_label=label))
     row_names = build.rows.get(question.id, {})

@@ -11,13 +11,14 @@ import {
   Moon,
   PanelLeft,
   PanelLeftClose,
-  Scale,
   Paperclip,
   Plug,
-  ShieldCheck,
   Plus,
+  Scale,
+  ShieldCheck,
   Square,
   Sun,
+  Wrench,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
@@ -47,6 +48,7 @@ import { LessonsDialog } from "./Lessons";
 import { ArtifactEditor } from "./Editors";
 import { LiveQualityPanel } from "./LiveQualityPanel";
 import { WeightingPanel } from "./WeightingPanel";
+import { StudyToolsPanel } from "./study/StudyToolsPanel";
 import { QualityDashboard } from "./quality/QualityDashboard";
 import { ArtifactIcon, OutputsPanel } from "./OutputsPanel";
 import { TaskActivity } from "./TaskActivity";
@@ -57,7 +59,7 @@ import { nudgeWidth } from "./outputs";
 import { nextPreference, useTheme, type ThemePreference } from "./theme";
 import { Button, IconButton } from "./ui";
 
-type WorkspaceTab = "outputs" | "viewer" | "live" | "weighting";
+type WorkspaceTab = "outputs" | "viewer" | "live" | "weighting" | "study";
 type DatasetInfo = { rows: number; variables: string[] };
 
 const PANEL_MIN = 360;
@@ -258,7 +260,9 @@ export function App() {
   function onTabKey(event: KeyboardEvent<HTMLButtonElement>) {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
-    const order: WorkspaceTab[] = open ? ["outputs", "viewer", "live", "weighting"] : ["outputs", "live", "weighting"];
+    const order: WorkspaceTab[] = open
+      ? ["outputs", "viewer", "live", "weighting", "study"]
+      : ["outputs", "live", "weighting", "study"];
     const step = event.key === "ArrowRight" ? 1 : -1;
     const next = order[(order.indexOf(tab) + step + order.length) % order.length];
     setTab(next);
@@ -562,8 +566,10 @@ export function App() {
                     if (file && project) {
                       setNotice(`Uploading ${file.name}…`);
                       uploadFile(project.id, file)
-                        .then(() => refreshProject(project))
-                        .then(() => setNotice(`Uploaded ${file.name}.`))
+                        .then(async (uploaded) => {
+                          await refreshProject(project);
+                          setNotice(`Uploaded ${file.name}.${uploaded.live_quality ? ` ${uploaded.live_quality.message}` : ""}`);
+                        })
                         .catch((reason: Error) => {
                           setNotice("");
                           setError(reason.message);
@@ -722,6 +728,23 @@ export function App() {
                 <Scale aria-hidden className="h-4 w-4" />
                 Weighting
               </button>
+              <button
+                aria-controls="panel-study"
+                aria-selected={tab === "study"}
+                className={clsx(
+                  "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors",
+                  tab === "study" ? "bg-sunken text-ink" : "text-muted hover:text-ink",
+                )}
+                id="tab-study"
+                onClick={() => setTab("study")}
+                onKeyDown={onTabKey}
+                role="tab"
+                tabIndex={tab === "study" ? 0 : -1}
+                type="button"
+              >
+                <Wrench aria-hidden className="h-4 w-4" />
+                Study tools
+              </button>
               {open && (
                 <IconButton label="Close viewer" onClick={() => show(null)}>
                   <X className="h-4 w-4" />
@@ -775,6 +798,36 @@ export function App() {
                   }}
                   onError={setError}
                   projectId={project.id}
+                />
+              )}
+            </div>
+            <div
+              aria-labelledby="tab-study"
+              className={clsx("min-h-0 flex-1 overflow-y-auto bg-canvas", tab !== "study" && "hidden")}
+              id="panel-study"
+              role="tabpanel"
+            >
+              {tab === "study" && (
+                <StudyToolsPanel
+                  onChanged={async () => {
+                    // Reason: saving segments makes a new active dataset, so reload the project row.
+                    const all = await listProjects();
+                    setProjects(all);
+                    const current = all.find((item) => item.id === project.id) ?? project;
+                    setProject(current);
+                    await refreshProject(current);
+                  }}
+                  onOpenProject={async (projectId) => {
+                    const all = await listProjects();
+                    setProjects(all);
+                    const target = all.find((item) => item.id === projectId);
+                    if (target) {
+                      selectProject(target);
+                      setTab("study");
+                    }
+                  }}
+                  projectId={project.id}
+                  projectName={project.name}
                 />
               )}
             </div>

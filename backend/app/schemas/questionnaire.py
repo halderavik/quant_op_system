@@ -136,6 +136,10 @@ class ProgrammingSpec(BaseModel):
     boxes: int | None = None
     dropdown: bool = False
     unresolved: list[str] = Field(default_factory=list)
+    # To-dos a person marked done (handled in Decipher or not needed); kept for the record.
+    done_todos: list[str] = Field(default_factory=list)
+    # Changes a person asked for with Fix with AI; they count as instructions from then on.
+    requested: list[str] = Field(default_factory=list)
 
 
 class Question(BaseModel):
@@ -194,10 +198,11 @@ class DerivedValue(BaseModel):
 class Computation(BaseModel):
     """A number worked out from answers rather than a group of respondents."""
 
-    # sum: add the answers; midpoint: the middle of the chosen answer's range ("25-34" is 29.5).
-    kind: Literal["sum", "midpoint"]
+    # sum: add the answers; midpoint: the middle of the chosen answer's range ("25-34" is 29.5);
+    # count: how many rows were chosen (or given a number above zero) across the sources.
+    kind: Literal["sum", "midpoint", "count"]
     sources: list[str] = Field(default_factory=list)
-    # For a sum over one numeric list: only these rows (all rows when empty).
+    # For a sum or count over one list: only these rows (all rows when empty).
     rows: list[int | str] = Field(default_factory=list)
 
 
@@ -225,6 +230,7 @@ class DerivedVariable(BaseModel):
     # Set for a computed number (a total, an income midpoint); values stay empty then.
     compute: Computation | None = None
     unresolved: list[str] = Field(default_factory=list)
+    done_todos: list[str] = Field(default_factory=list)
 
 
 class QuestionnaireSource(BaseModel):

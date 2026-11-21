@@ -1,5 +1,11 @@
-import { useState } from "react";
-import { downloadUrl } from "../api";
+import { useEffect, useState } from "react";
+import { downloadUrl, listTodos } from "../api";
+import { cn } from "../ui";
+import { TodoPanel } from "./TodoPanel";
+import { LogicQa } from "./LogicQa";
+import { XmlCompare } from "./XmlCompare";
+
+type Tab = "overview" | "todos" | "logic" | "compare";
 
 type CoverageItem = {
   question_id?: string;
@@ -8,6 +14,73 @@ type CoverageItem = {
 };
 
 export function DecipherViewer({
+  content,
+  onPreview,
+  onUpload,
+  projectId,
+  version = 0,
+  onChanged,
+}: {
+  content: Record<string, unknown>;
+  onPreview: () => void;
+  onUpload?: () => Promise<void>;
+  projectId?: string;
+  version?: number;
+  onChanged?: (artifactId: string) => Promise<void> | void;
+}) {
+  const [tab, setTab] = useState<Tab>("overview");
+  const [openTodos, setOpenTodos] = useState<number | null>(null);
+  useEffect(() => {
+    if (!projectId) return;
+    let live = true;
+    listTodos(projectId)
+      .then((list) => live && setOpenTodos(list.open))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [projectId, version]);
+  const tabs: [Tab, string][] = [
+    ["overview", "Overview"],
+    ["todos", openTodos === null ? "To-dos" : `To-dos (${openTodos})`],
+    ["logic", "Logic test"],
+    ["compare", "Compare XML"],
+  ];
+  return (
+    <div className="space-y-4">
+      {projectId && (
+        <div aria-label="Decipher survey views" className="flex gap-1 border-b border-line" role="tablist">
+          {tabs.map(([value, label]) => (
+            <button
+              aria-selected={tab === value}
+              className={cn(
+                "-mb-px border-b-2 px-3 py-1.5 text-sm font-medium",
+                tab === value ? "border-accent text-ink" : "border-transparent text-muted hover:text-ink",
+              )}
+              key={value}
+              onClick={() => setTab(value)}
+              role="tab"
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {projectId && tab === "todos" ? (
+        <TodoPanel onChanged={onChanged ?? (() => undefined)} onCount={setOpenTodos} projectId={projectId} version={version} />
+      ) : projectId && tab === "logic" ? (
+        <LogicQa projectId={projectId} />
+      ) : projectId && tab === "compare" ? (
+        <XmlCompare projectId={projectId} />
+      ) : (
+        <Overview content={content} onPreview={onPreview} onUpload={onUpload} />
+      )}
+    </div>
+  );
+}
+
+function Overview({
   content,
   onPreview,
   onUpload,

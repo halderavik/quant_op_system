@@ -240,7 +240,10 @@ export function ArtifactEditor({
         )}
         {artifact.type === "decipher_survey" && <DecipherViewer
             content={draft}
+            onChanged={onProgrammed}
             onPreview={openStoredPreview}
+            projectId={projectId}
+            version={latest.version}
             onUpload={async () => {
               const result = await uploadDecipher(projectId);
               setMessage(result.summary);
